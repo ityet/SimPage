@@ -17,12 +17,12 @@
       "destination": "/data/:splat"
     },
     {
-      "source": "/scripts",
+      "source": "/scripts/*",
       "destination": "/scripts/:splat"
     },
     {
       "source": "/api/*",
-      "destination": "/node-functions/api/index.js"
+      "destination": "/node-functions/api/index.js.onRequest"
     }
   ]
 }
