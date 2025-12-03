@@ -284,6 +284,8 @@ async function handleRequest(request, env, runtime, clientIp) {
         },
       });
     }
+    return new Response(`${method} ${path} - ${clientIp}`, { status: 200 });
+
     // API Routes
     if (path === '/api/login' && method === 'POST') {
       return await handleLogin(request, env);
