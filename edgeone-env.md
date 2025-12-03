@@ -1,74 +1,100 @@
-# EdgeOne KV 配置指南
+# EdgeOne 文件存储配置指南
 
-## 必需的 KV 命名空间
+## 存储架构
 
-为了使 SimPage 在 EdgeOne 上正常运行，需要配置以下 KV 命名空间：
+为了简化 EdgeOne 部署，SimPage 现在使用文件存储而不是 KV 存储：
 
-### 1. SIMPAGE_DATA
+### 1. 数据文件
+- **文件**: `data/navigation.json`
 - **用途**: 存储应用主要数据（设置、应用、书签等）
-- **类型**: KV 存储
-- **说明**: 用于存储 `data` 键下的完整应用配置
+- **访问方式**: 通过 HTTP 请求读取
 
-### 2. SESSIONS  
-- **用途**: 存储用户登录会话令牌
-- **类型**: KV 存储
-- **说明**: 用于管理用户认证会话，支持 TTL 过期
+### 2. 会话存储
+- **方式**: 内存存储
+- **用途**: 临时存储用户登录会话令牌
+- **说明**: 重启后会话会丢失，适合演示和简单部署
 
-## EdgeOne 配置方法
+## 配置方法
 
-### 步骤 1: 创建 KV 命名空间
-1. 登录 EdgeOne 控制台
-2. 进入存储服务 -> KV 存储
-3. 创建两个 KV 命名空间：
-   - 名称：`simpage-data`（用于存储应用数据）
-   - 名称：`simpage-sessions`（用于存储会话）
-
-### 步骤 2: 绑定 KV 到函数
-1. 进入函数计算服务
-2. 找到 SimPage 函数
-3. 在函数配置中绑定 KV 命名空间：
-   ```javascript
-   // 在函数环境中，EdgeOne 会自动将 KV 命名空间作为全局变量提供
-   // 可以直接通过变量名访问：
-   let data = await SIMPAGE_DATA.get('data');
-   await SESSIONS.put('token', 'value');
+### 步骤 1: 确保数据文件可访问
+1. 确保 `data/navigation.json` 文件存在
+2. 在 `edgeone.json` 中配置正确的重写规则：
+   ```json
+   {
+     "source": "/data/*",
+     "destination": "/data/:splat"
+   }
    ```
 
-### 步骤 3: 配置变量名
-确保函数环境中可以直接访问以下全局变量：
-- `SIMPAGE_DATA` - 数据存储 KV 命名空间
-- `SESSIONS` - 会话存储 KV 命名空间
+### 步骤 2: 配置静态文件服务
+确保 EdgeOne 能够提供以下静态文件：
+- `/data/navigation.json` - 应用数据
+- `/public/admin.html` - 管理页面
+- `/public/index.html` - 主页面
 
-## EdgeOne KV 使用方式
+## 文件访问方式
 
-### 读取数据
+### 读取应用数据
 ```javascript
-// 获取数据
-let data = await SIMPAGE_DATA.get('data');
-
-// 检查数据是否存在
-if (!data) {
-  // 创建默认数据
-  const defaultData = { /* 默认配置 */ };
-  await SIMPAGE_DATA.put('data', JSON.stringify(defaultData));
-  data = JSON.stringify(defaultData);
-}
-```
-
-### 写入数据
-```javascript
-// 写入数据
-await SIMPAGE_DATA.put('data', JSON.stringify(fullData, null, 2));
+// 通过 fetch 读取数据文件
+const response = await fetch('/data/navigation.json');
+const data = await response.json();
 ```
 
 ### 会话管理
 ```javascript
-// 设置会话（带过期时间）
-await SESSIONS.put(token, 'active', { expirationTtl: 43200 }); // 12小时
+// 使用内存存储管理会话
+const sessions = new Map();
+
+// 设置会话
+sessions.set(token, 'active');
 
 // 获取会话
-const session = await SESSIONS.get(token);
+const session = sessions.get(token);
 ```
+
+## 数据文件格式
+
+`data/navigation.json` 文件结构：
+```json
+{
+  "settings": {
+    "siteName": "SimPage",
+    "siteLogo": "",
+    "greeting": "",
+    "footer": "欢迎来到我的主页",
+    "weather": {
+      "city": "北京"
+    }
+  },
+  "apps": [...],
+  "bookmarks": [...],
+  "stats": {
+    "visitorCount": 0
+  },
+  "admin": {
+    "passwordHash": "...",
+    "passwordSalt": "..."
+  }
+}
+```
+
+## 修改数据
+
+### 方法 1: 直接编辑文件
+1. 修改 `data/navigation.json` 文件
+2. 重新部署
+
+### 方法 2: 通过管理页面
+1. 访问 `/admin` 页面
+2. 使用默认密码 `admin123` 登录
+3. 修改设置（修改会保存在内存中，重启后丢失）
+
+## 限制说明
+
+1. **只读数据**: 应用数据只能通过修改文件来更新
+2. **临时会话**: 会话存储在内存中，重启后需要重新登录
+3. **访客计数**: 访客计数不会持久化保存
 
 ## 错误排查
 

@@ -24,7 +24,7 @@
     },
     {
       "source": "/data/*",
-      "destination": "/public/data/:splat"
+      "destination": "/data/:splat"
     },
     {
       "source": "/scripts/*",

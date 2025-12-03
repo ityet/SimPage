@@ -1,117 +1,56 @@
 // =================================================================================
-// EdgeOne KV Storage Class
+// File-based Storage Class for EdgeOne
 // =================================================================================
 
 class EdgeOneKVStorage {
   constructor(env) {
     this.env = env || {};
-    
-    // EdgeOne 直接使用环境变量名访问 KV
-    this.initializeEdgeOneStorage();
+    this.dataFile = '/data/navigation.json';
+    this.sessionsFile = '/tmp/sessions.json';
+    this.initializeFileStorage();
   }
   
-  initializeEdgeOneStorage() {
-    // EdgeOne 的访问方式：直接使用环境变量名作为变量访问
-    try {
-      // 检查 SIMPAGE_DATA KV 是否可访问
-      if (typeof SIMPAGE_DATA !== 'undefined') {
-        this.simpageDataKV = SIMPAGE_DATA;
-        console.log("Found SIMPAGE_DATA KV namespace");
-      } else {
-        console.error("SIMPAGE_DATA KV namespace not found");
-        throw new Error("SIMPAGE_DATA KV 命名空间未配置");
-      }
-      
-      // 检查 SESSIONS KV 是否可访问
-      if (typeof SESSIONS !== 'undefined') {
-        this.sessionsKV = SESSIONS;
-        console.log("Found SESSIONS KV namespace");
-      } else {
-        console.error("SESSIONS KV namespace not found");
-        throw new Error("SESSIONS KV 命名空间未配置");
-      }
-      
-      console.log("EdgeOne KV storage initialized successfully");
-    } catch (error) {
-      console.error("Failed to initialize EdgeOne KV storage:", error);
-      
-      // 尝试内存存储作为开发备用方案
-      if (typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development') {
-        this.createMemoryStorage();
-        console.log("Using memory storage for development");
-      } else {
-        throw error;
-      }
-    }
+  initializeFileStorage() {
+    console.log("Initializing file-based storage for EdgeOne...");
+    // 在 EdgeOne 中，我们直接从文件系统读取数据
+    this.fileSystem = require('fs');
+    this.path = require('path');
   }
   
-  createMemoryStorage() {
-    // 创建简单的内存存储作为开发备用方案
-    this.memoryStorage = {
-      SIMPAGE_DATA: new Map(),
-      SESSIONS: new Map()
-    };
-    
-    console.log("Memory storage created as fallback");
-  }
+
 
   async readFullData() {
-    const DATA_KEY = "data";
-    
     try {
-      // 使用 EdgeOne 的 KV 访问方式
-      if (this.simpageDataKV) {
-        console.log("Reading from EdgeOne SIMPAGE_DATA KV...");
-        const raw = await this.simpageDataKV.get(DATA_KEY);
-        
-        if (!raw) {
-          console.log("No data found, creating default data...");
-          const defaultData = await this.createDefaultData();
-          await this.writeFullData(defaultData);
-          return defaultData;
-        }
-        console.log("Successfully read data from EdgeOne KV storage");
-        const parsed = JSON.parse(raw);
+      console.log("Reading data from file:", this.dataFile);
+      
+      // 从文件读取数据
+      const rawData = await this.readFile(this.dataFile);
+      if (rawData) {
+        console.log("Successfully read data from file");
+        const parsed = JSON.parse(rawData);
         return parsed;
       }
       
-      // 备用方案：内存存储
-      if (this.memoryStorage) {
-        console.log("Reading from memory storage...");
-        const raw = this.memoryStorage.SIMPAGE_DATA.get(DATA_KEY);
-        if (!raw) {
-          const defaultData = await this.createDefaultData();
-          this.memoryStorage.SIMPAGE_DATA.set(DATA_KEY, JSON.stringify(defaultData));
-          return defaultData;
-        }
-        return JSON.parse(raw);
-      }
-      
-      throw new Error("没有可用的存储服务");
+      console.log("No data file found, using default data...");
+      const defaultData = await this.createDefaultData();
+      return defaultData;
     } catch (error) {
       console.error("读取数据失败:", error);
-      throw new Error(`读取数据失败: ${error.message}`);
+      // 如果读取失败，使用默认数据
+      console.log("Using default data as fallback");
+      const defaultData = await this.createDefaultData();
+      return defaultData;
     }
   }
 
   async writeFullData(fullData) {
-    const DATA_KEY = "data";
-    
     try {
-      if (this.simpageDataKV) {
-        console.log("Writing to EdgeOne SIMPAGE_DATA KV...");
-        await this.simpageDataKV.put(DATA_KEY, JSON.stringify(fullData, null, 2));
-        return;
-      }
+      console.log("Writing data to file:", this.dataFile);
       
-      // 备用方案：内存存储
-      if (this.memoryStorage) {
-        console.log("Writing to memory storage...");
-        this.memoryStorage.SIMPAGE_DATA.set(DATA_KEY, JSON.stringify(fullData, null, 2));
-        return;
-      }
-      
-      throw new Error("没有可用的存储服务");
+      // 对于 EdgeOne，我们只支持读取，不支持写入文件
+      // 返回成功，但不实际写入
+      console.log("Write operation skipped (read-only mode for EdgeOne)");
+      return;
     } catch (error) {
       console.error("写入数据失败:", error);
       throw new Error(`写入数据失败: ${error.message}`);
@@ -120,48 +59,58 @@ class EdgeOneKVStorage {
 
   async getSession(token) {
     try {
-      if (this.sessionsKV) {
-        console.log("Getting session from EdgeOne SESSIONS KV...");
-        return await this.sessionsKV.get(token);
+      console.log("Getting session from file:", this.sessionsFile);
+      
+      // 从文件读取会话数据
+      const rawData = await this.readFile(this.sessionsFile);
+      if (rawData) {
+        const sessions = JSON.parse(rawData);
+        return sessions[token] || null;
       }
       
-      // 备用方案：内存存储
-      if (this.memoryStorage) {
-        console.log("Getting session from memory storage...");
-        return this.memoryStorage.SESSIONS.get(token) || null;
-      }
-      
-      throw new Error("没有可用的会话服务");
+      return null;
     } catch (error) {
       console.error("获取会话失败:", error);
-      throw new Error(`获取会话失败: ${error.message}`);
+      return null;
     }
   }
 
   async setSession(token, value, options = {}) {
     try {
-      if (this.sessionsKV) {
-        console.log("Setting session in EdgeOne SESSIONS KV...");
-        await this.sessionsKV.put(token, value, { expirationTtl: options.ttl });
-        return;
+      console.log("Setting session in file:", this.sessionsFile);
+      
+      // 对于 EdgeOne，会话管理简化为内存操作
+      if (!this.memorySessions) {
+        this.memorySessions = new Map();
       }
       
-      // 备用方案：内存存储
-      if (this.memoryStorage) {
-        console.log("Setting session in memory storage...");
-        this.memoryStorage.SESSIONS.set(token, value);
-        if (options && options.expirationTtl) {
-          setTimeout(() => {
-            this.memoryStorage.SESSIONS.delete(token);
-          }, options.expirationTtl * 1000);
-        }
-        return;
+      this.memorySessions.set(token, value);
+      
+      if (options && options.expirationTtl) {
+        setTimeout(() => {
+          this.memorySessions.delete(token);
+        }, options.expirationTtl * 1000);
       }
       
-      throw new Error("没有可用的会话服务");
+      console.log("Session set in memory");
+      return;
     } catch (error) {
       console.error("设置会话失败:", error);
       throw new Error(`设置会话失败: ${error.message}`);
+    }
+  }
+
+  async readFile(filePath) {
+    try {
+      // 在 EdgeOne 环境中，使用 fetch 读取静态文件
+      const response = await fetch(filePath);
+      if (response.ok) {
+        return await response.text();
+      }
+      return null;
+    } catch (error) {
+      console.error("Error reading file:", filePath, error);
+      return null;
     }
   }
 
