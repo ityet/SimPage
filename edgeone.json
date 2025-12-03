@@ -5,7 +5,9 @@
   "outputDirectory": "./",
   "environmentVariables": {
     "SIMPAGE_DATA": "simpage-data-kv",
-    "SESSIONS": "simpage-sessions-kv"
+    "SESSIONS": "simpage-sessions-kv",
+    "SIMPAGE_DATA_KV": "simpage-data-kv",
+    "SESSIONS_KV": "simpage-sessions-kv"
   },
   "rewrites": [
     {

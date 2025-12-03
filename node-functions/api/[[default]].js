@@ -6,24 +6,80 @@ class EdgeOneKVStorage {
   constructor(env) {
     this.env = env || {};
     
-    // 检查环境变量是否正确配置
-    if (!this.env.SIMPAGE_DATA) {
-      console.warn("SIMPAGE_DATA KV namespace not found in environment");
-      // 尝试使用全局对象（某些 EdgeOne 部署可能直接提供）
-      if (typeof globalThis !== 'undefined' && globalThis.SIMPAGE_DATA) {
+    // EdgeOne 可能使用不同的方式提供存储服务
+    this.initializeStorage();
+  }
+  
+  initializeStorage() {
+    // 方法 1: 检查标准环境变量
+    if (this.env.SIMPAGE_DATA && this.env.SESSIONS) {
+      console.log("Using environment variables for KV storage");
+      return;
+    }
+    
+    // 方法 2: 检查 EdgeOne 特有的环境变量命名
+    if (this.env.SIMPAGE_DATA_KV && this.env.SESSIONS_KV) {
+      this.env.SIMPAGE_DATA = this.env.SIMPAGE_DATA_KV;
+      this.env.SESSIONS = this.env.SESSIONS_KV;
+      console.log("Using EdgeOne KV storage format");
+      return;
+    }
+    
+    // 方法 3: 检查全局对象
+    if (typeof globalThis !== 'undefined') {
+      if (globalThis.SIMPAGE_DATA && globalThis.SESSIONS) {
         this.env.SIMPAGE_DATA = globalThis.SIMPAGE_DATA;
-        console.log("Using globalThis.SIMPAGE_DATA");
+        this.env.SESSIONS = globalThis.SESSIONS;
+        console.log("Using globalThis for KV storage");
+        return;
+      }
+      
+      // EdgeOne 可能使用不同的全局命名
+      if (globalThis.kv && globalThis.kv.SIMPAGE_DATA && globalThis.kv.SESSIONS) {
+        this.env.SIMPAGE_DATA = globalThis.kv.SIMPAGE_DATA;
+        this.env.SESSIONS = globalThis.kv.SESSIONS;
+        console.log("Using globalThis.kv for KV storage");
+        return;
       }
     }
     
-    if (!this.env.SESSIONS) {
-      console.warn("SESSIONS KV namespace not found in environment");
-      // 尝试使用全局对象
-      if (typeof globalThis !== 'undefined' && globalThis.SESSIONS) {
-        this.env.SESSIONS = globalThis.SESSIONS;
-        console.log("Using globalThis.SESSIONS");
-      }
+    // 方法 4: 创建内存存储作为备用方案（仅用于开发）
+    if (process && process.env && process.env.NODE_ENV === 'development') {
+      this.createMemoryStorage();
+      console.log("Using memory storage for development");
+      return;
     }
+    
+    console.error("No suitable KV storage found");
+    console.log("Available env keys:", Object.keys(this.env));
+    if (typeof globalThis !== 'undefined') {
+      console.log("Available globalThis keys:", Object.keys(globalThis).filter(k => k.includes('KV') || k.includes('STORAGE') || k.includes('DATA')));
+    }
+  }
+  
+  createMemoryStorage() {
+    // 创建简单的内存存储作为开发备用方案
+    this.memoryStorage = {
+      SIMPAGE_DATA: new Map(),
+      SESSIONS: new Map()
+    };
+    
+    this.env.SIMPAGE_DATA = {
+      get: async (key) => this.memoryStorage.SIMPAGE_DATA.get(key) || null,
+      put: async (key, value) => this.memoryStorage.SIMPAGE_DATA.set(key, value)
+    };
+    
+    this.env.SESSIONS = {
+      get: async (key) => this.memoryStorage.SESSIONS.get(key) || null,
+      put: async (key, value, options) => {
+        this.memoryStorage.SESSIONS.set(key, value);
+        if (options && options.expirationTtl) {
+          setTimeout(() => {
+            this.memoryStorage.SESSIONS.delete(key);
+          }, options.expirationTtl * 1000);
+        }
+      }
+    };
   }
 
   async readFullData() {
@@ -33,26 +89,31 @@ class EdgeOneKVStorage {
       // 检查 KV 命名空间是否可用
       if (!this.env.SIMPAGE_DATA) {
         console.error("SIMPAGE_DATA KV namespace is not available");
-        throw new Error("存储服务不可用，请检查配置");
+        console.log("Debug: env object keys:", Object.keys(this.env));
+        throw new Error("存储服务不可用，请检查配置。可能需要在 EdgeOne 控制台中配置 SIMPAGE_DATA 环境变量");
       }
       
       let raw;
       // 尝试不同的 KV 访问方式
       if (typeof this.env.SIMPAGE_DATA.get === 'function') {
+        console.log("Reading from KV storage...");
         raw = await this.env.SIMPAGE_DATA.get(DATA_KEY);
       } else if (typeof this.env.SIMPAGE_DATA === 'string') {
-        // 如果是字符串，可能是环境变量指向的 KV 名称
-        // 这种情况可能需要使用全局 KV 对象或其他方式访问
-        throw new Error("KV 访问方式需要根据 EdgeOne 具体实现调整");
+        // 如果是字符串，尝试作为环境变量查找全局存储
+        console.log("Trying to access KV via string identifier...");
+        throw new Error("字符串标识符的 KV 访问需要根据 EdgeOne 具体实现调整");
       } else {
+        console.log("Unknown KV storage type:", typeof this.env.SIMPAGE_DATA);
         throw new Error("无法识别的 KV 存储类型");
       }
       
       if (!raw) {
+        console.log("No data found, creating default data...");
         const defaultData = await this.createDefaultData();
         await this.writeFullData(defaultData);
         return defaultData;
       }
+      console.log("Successfully read data from KV storage");
       const parsed = JSON.parse(raw);
       return parsed;
     } catch (error) {
