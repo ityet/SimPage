@@ -18,11 +18,11 @@
     },
     {
       "source": "/scripts/*",
-      "destination": "/scripts/:splat"
+      "destination": "/public/scripts/:splat"
     },
     {
-      "source": "/api/*",
-      "destination": "/node-functions/api/index.js.onRequest"
+      "source": "/simpage-logo.svg",
+      "destination": "/public/simpage-logo.svg"
     }
   ]
 }
