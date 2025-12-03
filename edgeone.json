@@ -30,7 +30,7 @@
     },
     {
       "source": "/api/*",
-      "destination": "/node-functions/api/index.js"
+      "destination": "/node-functions/api/[[default]].js"
     }
   ]
 }
