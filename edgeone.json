@@ -3,6 +3,10 @@
   "version": "1.1.0",
   "description": "现代化导航页，由 Cloudflare Workers 驱动",
   "outputDirectory": "./",
+  "environmentVariables": {
+    "SIMPAGE_DATA": "simpage-data-kv",
+    "SESSIONS": "simpage-sessions-kv"
+  },
   "rewrites": [
     {
       "source": "/",

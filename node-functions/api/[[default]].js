@@ -4,32 +4,117 @@
 
 class EdgeOneKVStorage {
   constructor(env) {
-    this.env = env;
+    this.env = env || {};
+    
+    // 检查环境变量是否正确配置
+    if (!this.env.SIMPAGE_DATA) {
+      console.warn("SIMPAGE_DATA KV namespace not found in environment");
+      // 尝试使用全局对象（某些 EdgeOne 部署可能直接提供）
+      if (typeof globalThis !== 'undefined' && globalThis.SIMPAGE_DATA) {
+        this.env.SIMPAGE_DATA = globalThis.SIMPAGE_DATA;
+        console.log("Using globalThis.SIMPAGE_DATA");
+      }
+    }
+    
+    if (!this.env.SESSIONS) {
+      console.warn("SESSIONS KV namespace not found in environment");
+      // 尝试使用全局对象
+      if (typeof globalThis !== 'undefined' && globalThis.SESSIONS) {
+        this.env.SESSIONS = globalThis.SESSIONS;
+        console.log("Using globalThis.SESSIONS");
+      }
+    }
   }
 
   async readFullData() {
     const DATA_KEY = "data";
-    const raw = await this.env.SIMPAGE_DATA.get(DATA_KEY);
-    if (!raw) {
-      const defaultData = await this.createDefaultData();
-      await this.writeFullData(defaultData);
-      return defaultData;
+    
+    try {
+      // 检查 KV 命名空间是否可用
+      if (!this.env.SIMPAGE_DATA) {
+        console.error("SIMPAGE_DATA KV namespace is not available");
+        throw new Error("存储服务不可用，请检查配置");
+      }
+      
+      let raw;
+      // 尝试不同的 KV 访问方式
+      if (typeof this.env.SIMPAGE_DATA.get === 'function') {
+        raw = await this.env.SIMPAGE_DATA.get(DATA_KEY);
+      } else if (typeof this.env.SIMPAGE_DATA === 'string') {
+        // 如果是字符串，可能是环境变量指向的 KV 名称
+        // 这种情况可能需要使用全局 KV 对象或其他方式访问
+        throw new Error("KV 访问方式需要根据 EdgeOne 具体实现调整");
+      } else {
+        throw new Error("无法识别的 KV 存储类型");
+      }
+      
+      if (!raw) {
+        const defaultData = await this.createDefaultData();
+        await this.writeFullData(defaultData);
+        return defaultData;
+      }
+      const parsed = JSON.parse(raw);
+      return parsed;
+    } catch (error) {
+      console.error("读取数据失败:", error);
+      throw new Error(`读取数据失败: ${error.message}`);
     }
-    const parsed = JSON.parse(raw);
-    return parsed;
   }
 
   async writeFullData(fullData) {
     const DATA_KEY = "data";
-    await this.env.SIMPAGE_DATA.put(DATA_KEY, JSON.stringify(fullData, null, 2));
+    
+    try {
+      if (!this.env.SIMPAGE_DATA) {
+        console.error("SIMPAGE_DATA KV namespace is not available");
+        throw new Error("存储服务不可用，请检查配置");
+      }
+      
+      if (typeof this.env.SIMPAGE_DATA.put === 'function') {
+        await this.env.SIMPAGE_DATA.put(DATA_KEY, JSON.stringify(fullData, null, 2));
+      } else {
+        throw new Error("无法识别的 KV 存储类型");
+      }
+    } catch (error) {
+      console.error("写入数据失败:", error);
+      throw new Error(`写入数据失败: ${error.message}`);
+    }
   }
 
   async getSession(token) {
-    return await this.env.SESSIONS.get(token);
+    try {
+      if (!this.env.SESSIONS) {
+        console.error("SESSIONS KV namespace is not available");
+        throw new Error("会话服务不可用，请检查配置");
+      }
+      
+      if (typeof this.env.SESSIONS.get === 'function') {
+        return await this.env.SESSIONS.get(token);
+      } else {
+        throw new Error("无法识别的会话存储类型");
+      }
+    } catch (error) {
+      console.error("获取会话失败:", error);
+      throw new Error(`获取会话失败: ${error.message}`);
+    }
   }
 
   async setSession(token, value, options = {}) {
-    await this.env.SESSIONS.put(token, value, { expirationTtl: options.ttl });
+    try {
+      if (!this.env.SESSIONS) {
+        console.error("SESSIONS KV namespace is not available");
+        throw new Error("会话服务不可用，请检查配置");
+      }
+      
+      if (typeof this.env.SESSIONS.put === 'function') {
+        await this.env.SESSIONS.put(token, value, { expirationTtl: options.ttl });
+      } else {
+        throw new Error("无法识别的会话存储类型");
+      }
+    } catch (error) {
+      console.error("设置会话失败:", error);
+      throw new Error(`设置会话失败: ${error.message}`);
+    }
   }
 
   async createDefaultData() {
