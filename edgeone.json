@@ -23,6 +23,10 @@
     {
       "source": "/simpage-logo.svg",
       "destination": "/public/simpage-logo.svg"
+    },
+    {
+      "source": "/api/*",
+      "destination": "/node-functions/api/index.js"
     }
   ]
 }
