@@ -9,6 +9,18 @@
       "destination": "/public"
     },
     {
+      "source": "/styles.css",
+      "destination": "/public/styles.css"
+    },
+    {
+      "source": "/data/*",
+      "destination": "/data/:splat"
+    },
+    {
+      "source": "/scripts",
+      "destination": "/scripts/:splat"
+    },
+    {
       "source": "/api/*",
       "destination": "/node-functions/api/index.js"
     }
