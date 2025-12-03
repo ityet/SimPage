@@ -9,12 +9,16 @@
       "destination": "/public"
     },
     {
+      "source": "/admin",
+      "destination": "/public/admin.html"
+    },
+    {
       "source": "/styles.css",
       "destination": "/public/styles.css"
     },
     {
       "source": "/data/*",
-      "destination": "/data/:splat"
+      "destination": "/public/data/:splat"
     },
     {
       "source": "/scripts/*",
