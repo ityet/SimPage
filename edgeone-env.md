@@ -1,4 +1,4 @@
-# EdgeOne 环境变量配置
+# EdgeOne KV 配置指南
 
 ## 必需的 KV 命名空间
 
@@ -14,33 +14,61 @@
 - **类型**: KV 存储
 - **说明**: 用于管理用户认证会话，支持 TTL 过期
 
-## 配置方法
+## EdgeOne 配置方法
 
-### 方法 1: 通过 EdgeOne 控制台配置（推荐）
+### 步骤 1: 创建 KV 命名空间
 1. 登录 EdgeOne 控制台
-2. 进入函数计算服务
-3. 找到 SimPage 函数
-4. 在函数配置中添加环境变量：
+2. 进入存储服务 -> KV 存储
+3. 创建两个 KV 命名空间：
+   - 名称：`simpage-data`（用于存储应用数据）
+   - 名称：`simpage-sessions`（用于存储会话）
+
+### 步骤 2: 绑定 KV 到函数
+1. 进入函数计算服务
+2. 找到 SimPage 函数
+3. 在函数配置中绑定 KV 命名空间：
+   ```javascript
+   // 在函数环境中，EdgeOne 会自动将 KV 命名空间作为全局变量提供
+   // 可以直接通过变量名访问：
+   let data = await SIMPAGE_DATA.get('data');
+   await SESSIONS.put('token', 'value');
    ```
-   SIMPAGE_DATA=your_kv_namespace_id
-   SESSIONS=your_sessions_kv_namespace_id
-   ```
 
-**注意**: EdgeOne 可能使用 KV 命名空间 ID 而不是端点地址。
+### 步骤 3: 配置变量名
+确保函数环境中可以直接访问以下全局变量：
+- `SIMPAGE_DATA` - 数据存储 KV 命名空间
+- `SESSIONS` - 会话存储 KV 命名空间
 
-### 方法 2: EdgeOne 特有命名格式
-如果标准命名不工作，尝试：
+## EdgeOne KV 使用方式
+
+### 读取数据
+```javascript
+// 获取数据
+let data = await SIMPAGE_DATA.get('data');
+
+// 检查数据是否存在
+if (!data) {
+  // 创建默认数据
+  const defaultData = { /* 默认配置 */ };
+  await SIMPAGE_DATA.put('data', JSON.stringify(defaultData));
+  data = JSON.stringify(defaultData);
+}
 ```
-SIMPAGE_DATA_KV=your_kv_namespace_id
-SESSIONS_KV=your_sessions_kv_namespace_id
+
+### 写入数据
+```javascript
+// 写入数据
+await SIMPAGE_DATA.put('data', JSON.stringify(fullData, null, 2));
 ```
 
-### 方法 3: 全局对象配置
-如果 EdgeOne 支持全局 KV 对象，代码会自动尝试使用：
-- `globalThis.SIMPAGE_DATA`
-- `globalThis.SESSIONS`
-- `globalThis.kv.SIMPAGE_DATA`
-- `globalThis.kv.SESSIONS`
+### 会话管理
+```javascript
+// 设置会话（带过期时间）
+await SESSIONS.put(token, 'active', { expirationTtl: 43200 }); // 12小时
+
+// 获取会话
+const session = await SESSIONS.get(token);
+```
 
 ## 错误排查
 
