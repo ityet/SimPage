@@ -1,3 +1,89 @@
+// =================================================================================
+// EdgeOne KV Storage Class
+// =================================================================================
+
+class EdgeOneKVStorage {
+  constructor(env) {
+    this.env = env;
+  }
+
+  async readFullData() {
+    const DATA_KEY = "data";
+    const raw = await this.env.SIMPAGE_DATA.get(DATA_KEY);
+    if (!raw) {
+      const defaultData = await this.createDefaultData();
+      await this.writeFullData(defaultData);
+      return defaultData;
+    }
+    const parsed = JSON.parse(raw);
+    return parsed;
+  }
+
+  async writeFullData(fullData) {
+    const DATA_KEY = "data";
+    await this.env.SIMPAGE_DATA.put(DATA_KEY, JSON.stringify(fullData, null, 2));
+  }
+
+  async getSession(token) {
+    return await this.env.SESSIONS.get(token);
+  }
+
+  async setSession(token, value, options = {}) {
+    await this.env.SESSIONS.put(token, value, { expirationTtl: options.ttl });
+  }
+
+  async createDefaultData() {
+    const DEFAULT_ADMIN_PASSWORD = "admin123";
+    const { passwordHash, passwordSalt } = await this.hashPassword(DEFAULT_ADMIN_PASSWORD);
+    
+    return {
+      settings: {
+        siteName: "SimPage",
+        siteLogo: "",
+        greeting: "",
+        footer: "",
+        weather: { city: ["北京"] }
+      },
+      apps: [],
+      bookmarks: [],
+      stats: { visitorCount: 0 },
+      admin: { passwordHash, passwordSalt }
+    };
+  }
+
+  async hashPassword(password) {
+    const salt = new Uint8Array(16);
+    crypto.getRandomValues(salt);
+    const saltHex = this.bufferToHex(salt);
+
+    const keyMaterial = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(password),
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"]
+    );
+
+    const derivedBits = await crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: salt,
+        iterations: 100000,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      512
+    );
+
+    const hashHex = this.bufferToHex(new Uint8Array(derivedBits));
+    return { passwordHash: hashHex, passwordSalt: saltHex };
+  }
+
+  bufferToHex(buffer) {
+    return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+}
+
 // 存储实例
 let storage = null;
 
