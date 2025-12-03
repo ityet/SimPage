@@ -8,6 +8,7 @@ class EdgeOneKVStorage {
     this.dataFile = '/data/navigation.json';
     this.sessionsFile = '/tmp/sessions.json';
     this.initializeFileStorage();
+    this.cleanupExpiredSessions();
   }
   
   initializeFileStorage() {
@@ -15,6 +16,45 @@ class EdgeOneKVStorage {
     // 在 EdgeOne 中，我们直接从文件系统读取数据
     this.fileSystem = require('fs');
     this.path = require('path');
+  }
+  
+  cleanupExpiredSessions() {
+    // 定期清理过期会话
+    setInterval(() => {
+      this.cleanExpiredSessions();
+    }, 5 * 60 * 1000); // 每5分钟清理一次
+  }
+  
+  cleanExpiredSessions() {
+    const now = Date.now();
+    let cleanedCount = 0;
+    
+    // 清理全局会话
+    if (typeof globalThis !== 'undefined' && globalThis.simpageSessions) {
+      for (const [token, sessionData] of globalThis.simpageSessions) {
+        if (sessionData.expires && now > sessionData.expires) {
+          globalThis.simpageSessions.delete(token);
+          cleanedCount++;
+        }
+      }
+      if (cleanedCount > 0) {
+        console.log(`Cleaned ${cleanedCount} expired sessions from global storage`);
+      }
+    }
+    
+    // 清理实例会话
+    if (this.memorySessions) {
+      let instanceCleanedCount = 0;
+      for (const [token, sessionData] of this.memorySessions) {
+        if (sessionData.expires && now > sessionData.expires) {
+          this.memorySessions.delete(token);
+          instanceCleanedCount++;
+        }
+      }
+      if (instanceCleanedCount > 0) {
+        console.log(`Cleaned ${instanceCleanedCount} expired sessions from instance storage`);
+      }
+    }
   }
   
 
@@ -59,15 +99,46 @@ class EdgeOneKVStorage {
 
   async getSession(token) {
     try {
-      console.log("Getting session from file:", this.sessionsFile);
+      console.log("Getting session for token:", token.substring(0, 10) + "...");
       
-      // 从文件读取会话数据
-      const rawData = await this.readFile(this.sessionsFile);
-      if (rawData) {
-        const sessions = JSON.parse(rawData);
-        return sessions[token] || null;
+      // 方案1: 从文件读取会话（最可靠）
+      const sessionFromFile = await this.getSessionFromFile(token);
+      if (sessionFromFile) {
+        console.log("Session found in file");
+        return sessionFromFile;
       }
       
+      // 方案2: 从全局对象读取会话
+      if (typeof globalThis !== 'undefined' && globalThis.simpageSessions) {
+        const sessionData = globalThis.simpageSessions.get(token);
+        if (sessionData) {
+          // 检查是否过期
+          if (sessionData.expires && Date.now() > sessionData.expires) {
+            globalThis.simpageSessions.delete(token);
+            console.log("Session expired in globalThis");
+            return null;
+          }
+          console.log("Session found in globalThis");
+          return sessionData.value;
+        }
+      }
+      
+      // 方案3: 从实例内存读取
+      if (this.memorySessions) {
+        const sessionData = this.memorySessions.get(token);
+        if (sessionData) {
+          // 检查是否过期
+          if (sessionData.expires && Date.now() > sessionData.expires) {
+            this.memorySessions.delete(token);
+            console.log("Session expired in instance memory");
+            return null;
+          }
+          console.log("Session found in instance memory");
+          return sessionData.value;
+        }
+      }
+      
+      console.log("Session not found in any storage");
       return null;
     } catch (error) {
       console.error("获取会话失败:", error);
@@ -77,26 +148,95 @@ class EdgeOneKVStorage {
 
   async setSession(token, value, options = {}) {
     try {
-      console.log("Setting session in file:", this.sessionsFile);
+      console.log("Setting session for token:", token.substring(0, 10) + "...");
       
-      // 对于 EdgeOne，会话管理简化为内存操作
+      const sessionData = {
+        value: value,
+        expires: options && options.ttl ? Date.now() + (options.ttl * 1000) : null
+      };
+      
+      // 方案1: 保存到文件（最可靠）
+      await this.saveSessionToFile(token, sessionData);
+      
+      // 方案2: 保存到全局对象（快速访问）
+      if (typeof globalThis !== 'undefined') {
+        if (!globalThis.simpageSessions) {
+          globalThis.simpageSessions = new Map();
+        }
+        globalThis.simpageSessions.set(token, sessionData);
+        console.log("Session stored in globalThis");
+      }
+      
+      // 方案3: 保存到实例内存（备用）
       if (!this.memorySessions) {
         this.memorySessions = new Map();
       }
+      this.memorySessions.set(token, sessionData);
+      console.log("Session stored in all available storages");
       
-      this.memorySessions.set(token, value);
-      
-      if (options && options.expirationTtl) {
-        setTimeout(() => {
-          this.memorySessions.delete(token);
-        }, options.expirationTtl * 1000);
-      }
-      
-      console.log("Session set in memory");
       return;
     } catch (error) {
       console.error("设置会话失败:", error);
       throw new Error(`设置会话失败: ${error.message}`);
+    }
+  }
+
+  async getSessionFromFile(token) {
+    try {
+      const rawData = await this.readFile(this.sessionsFile);
+      if (rawData) {
+        const sessions = JSON.parse(rawData);
+        const sessionData = sessions[token];
+        if (sessionData) {
+          // 检查是否过期
+          if (sessionData.expires && Date.now() > sessionData.expires) {
+            // 清理过期会话
+            delete sessions[token];
+            await this.writeFile(this.sessionsFile, JSON.stringify(sessions));
+            console.log("Session expired in file");
+            return null;
+          }
+          return sessionData.value;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Error reading session from file:", error);
+      return null;
+    }
+  }
+
+  async saveSessionToFile(token, sessionData) {
+    try {
+      let sessions = {};
+      const rawData = await this.readFile(this.sessionsFile);
+      if (rawData) {
+        sessions = JSON.parse(rawData);
+      }
+      
+      sessions[token] = sessionData;
+      await this.writeFile(this.sessionsFile, JSON.stringify(sessions));
+      console.log("Session saved to file");
+    } catch (error) {
+      console.error("Error saving session to file:", error);
+      // 文件保存失败不是致命错误，继续使用内存存储
+    }
+  }
+
+  async writeFile(filePath, content) {
+    try {
+      // 在 EdgeOne 中，文件写入可能不可用，但我们可以尝试
+      const response = await fetch(filePath, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: content
+      });
+      return response.ok;
+    } catch (error) {
+      console.error("Error writing file:", filePath, error);
+      return false;
     }
   }
 
@@ -389,19 +529,33 @@ function handleFetchLogo(request, env) {
 async function requireAuth(request, env) {
   const raw = request.headers.get("authorization");
   if (!raw || !raw.startsWith(AUTH_HEADER_PREFIX)) {
+    console.log("No authorization header or invalid format");
     return jsonResponse({ success: false, message: "请登录后再执行此操作。" }, 401);
   }
 
   const token = raw.slice(AUTH_HEADER_PREFIX.length).trim();
   if (!token) {
+    console.log("Empty token in authorization header");
     return jsonResponse({ success: false, message: "请登录后再执行此操作。" }, 401);
   }
 
   const storage = getStorage(env);
   const session = await storage.getSession(token);
   if (!session) {
+    console.log("Session not found or expired for token:", token.substring(0, 10) + "...");
+    
+    // 调试信息：检查全局会话状态
+    if (typeof globalThis !== 'undefined' && globalThis.simpageSessions) {
+      console.log("Global sessions count:", globalThis.simpageSessions.size);
+      for (const [k, v] of globalThis.simpageSessions) {
+        console.log(`Session ${k.substring(0, 10)}...:`, v);
+      }
+    }
+    
     return jsonResponse({ success: false, message: "登录状态已失效，请重新登录。" }, 401);
   }
+  
+  console.log("Session validated successfully for token:", token.substring(0, 10) + "...");
 }
 
 // =================================================================================
