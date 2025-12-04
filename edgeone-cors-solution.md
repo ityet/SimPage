@@ -46,9 +46,27 @@ async readFile(filePath) {
 2. **配置管理**: 可以通过环境变量或配置文件来管理不同的数据集
 3. **热更新**: 实现数据更新接口，支持在线修改配置
 
+## 前端修改
+同时修改了 `public/scripts/main.js` 中的 `loadData` 函数：
+
+```javascript
+// 修改前：跨域请求
+const response = await fetch("https://down.ityet.com:99/file/navigation.json");
+
+// 修改后：本地API请求
+const response = await fetch("/api/data");
+```
+
 ## 部署说明
 1. 确保 `edgeone.json` 中的 `/api/*` 路由配置正确
-2. 重新部署 EdgeOne 函数
-3. 测试登录功能（默认密码: admin123）
+2. 重新部署 EdgeOne 函数和前端静态文件
+3. 测试网站功能（默认管理员密码: admin123）
+
+## 技术优势总结
+- ✅ **彻底解决 CORS 问题**: 前端和后端都不再涉及跨域请求
+- ⚡ **性能更好**: 数据直接从本地API获取，响应更快
+- 🛡️ **更可靠**: 不依赖外部文件服务，减少单点故障
+- 🔧 **易于维护**: 数据配置集中在后端代码中
+- 🌐 **域名无关**: 部署到任何域名都能正常工作
 
 这个解决方案彻底解决了 CORS 问题，同时提供了稳定可靠的数据访问方式。

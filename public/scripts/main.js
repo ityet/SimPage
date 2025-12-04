@@ -214,12 +214,34 @@ function updateGreetingDisplay(hour = new Date().getHours()) {
 
 async function loadData() {
   try {
-    const response = await fetch("https://down.ityet.com:99/file/navigation.json");
-    if (!response.ok) {
-      throw new Error("数据拉取失败");
+    // 尝试从代理API获取外部数据，如果失败则使用本地API
+    let data;
+    let useExternal = false;
+    
+    try {
+      console.log("尝试从外部获取数据...");
+      const proxyResponse = await fetch("/api/proxy/navigation");
+      if (proxyResponse.ok) {
+        const proxyResult = await proxyResponse.json();
+        if (proxyResult.success) {
+          data = proxyResult.data;
+          useExternal = true;
+          console.log("成功从外部获取数据");
+        }
+      }
+    } catch (proxyError) {
+      console.log("代理获取失败，尝试本地数据:", proxyError.message);
     }
-    const payload = await response.json();
-    const data = payload && typeof payload === "object" && "data" in payload ? payload.data : payload;
+    
+    // 如果代理失败，使用本地API
+    if (!data) {
+      console.log("使用本地API获取数据");
+      const localResponse = await fetch("/api/data");
+      if (!localResponse.ok) {
+        throw new Error("本地数据拉取失败");
+      }
+      data = await localResponse.json();
+    }
 
     applySiteSettings(data?.settings);
     updateVisitorCount(data?.visitorCount);
@@ -230,6 +252,14 @@ async function loadData() {
     renderApps(originalData.apps);
     renderBookmarks(originalData.bookmarks);
     hideLocalSearchFeedback();
+    
+    // 显示数据来源状态（可选）
+    if (useExternal) {
+      console.log("✅ 数据来源于外部服务器");
+    } else {
+      console.log("📦 数据来源于本地配置");
+    }
+    
   } catch (error) {
     console.error("加载数据失败", error);
     renderApps([], { emptyMessage: "加载应用数据失败，请稍后重试。" });

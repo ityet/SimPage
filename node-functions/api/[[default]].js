@@ -214,11 +214,33 @@ class EdgeOneKVStorage {
     try {
       console.log("Attempting to read file:", filePath);
       
-      // 由于在 EdgeOne 环境中，文件系统访问可能受限，
-      // 并且避免跨域问题，我们直接使用内置的默认数据
-      // 这些数据基于实际的 navigation.json 文件内容
+      // 尝试从外部域名获取数据（EdgeOne服务端请求没有CORS限制）
+      if (filePath.startsWith('/data/navigation.json')) {
+        try {
+          const externalUrl = "https://down.ityet.com:99/file/navigation.json";
+          console.log("Fetching data from external URL:", externalUrl);
+          
+          const response = await fetch(externalUrl, {
+            headers: {
+              'User-Agent': 'SimPage-EdgeOne/1.0',
+              'Accept': 'application/json',
+            },
+          });
+          
+          if (response.ok) {
+            const text = await response.text();
+            console.log("Successfully fetched data from external URL");
+            return text;
+          } else {
+            console.log("External fetch failed, status:", response.status);
+          }
+        } catch (fetchError) {
+          console.log("External fetch error:", fetchError.message);
+        }
+      }
       
-      console.log("Using built-in data to avoid CORS and filesystem issues");
+      // 如果外部获取失败，使用内置的默认数据作为后备
+      console.log("Using built-in data as fallback");
       const defaultData = await this.createDefaultData();
       return JSON.stringify(defaultData);
       
@@ -556,6 +578,44 @@ function handleFetchLogo(request, env) {
   }
 }
 
+async function handleNavigationProxy() {
+  try {
+    const externalUrl = "https://down.ityet.com:99/file/navigation.json";
+    console.log("Proxying navigation data from:", externalUrl);
+    
+    const response = await fetch(externalUrl, {
+      headers: {
+        'User-Agent': 'SimPage-EdgeOne/1.0',
+        'Accept': 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+    });
+    
+    if (!response.ok) {
+      console.error("External fetch failed:", response.status, response.statusText);
+      return jsonResponse({
+        success: false,
+        message: `外部数据获取失败: ${response.status} ${response.statusText}`
+      }, response.status);
+    }
+    
+    const data = await response.json();
+    console.log("Successfully proxied navigation data");
+    
+    return jsonResponse({
+      success: true,
+      data: data
+    });
+    
+  } catch (error) {
+    console.error("Navigation proxy error:", error);
+    return jsonResponse({
+      success: false,
+      message: `代理请求失败: ${error.message}`
+    }, 500);
+  }
+}
+
 // =================================================================================
 // Authentication Middleware
 // =================================================================================
@@ -676,6 +736,10 @@ async function handleRequest(request, env, runtime, clientIp) {
       const authResult = await requireAuth(request, env);
       if (authResult) return authResult;
       return await handleFetchLogo(request, env);
+    }
+
+    if (path === '/api/proxy/navigation' && method === 'GET') {
+      return await handleNavigationProxy();
     }
 
     // 404 for unknown routes
