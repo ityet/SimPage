@@ -1,10 +1,3 @@
-const express = require("express");
-const fs = require("fs/promises");
-const path = require("path");
-const http = require("node:http");
-const https = require("node:https");
-const { randomUUID, scryptSync, timingSafeEqual, randomBytes } = require("crypto");
-
 class EdgeOneKVStorage {
   constructor(env) {
     this.env = env || {};
@@ -713,16 +706,18 @@ async function handleRequest(request, env, runtime, clientIp) {
 export async function onRequest({ request, params, env }) {
   let strings="";
   try{
-  let nodeenv = env.NODE_ENV;
-  strings += ("nodeenv:"+nodeenv);
-  let value = await SIMPAGE_DATA.get("test");
-  strings += ("value:"+value);
-  let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
-  strings += ("value1:"+value1);
-  let value2 = await SIMPAGE_DATA.get("data", "json");
-  strings += ("value2:"+value2);
+      let nodeenv = env.NODE_ENV;
+      strings += ("nodeenv:"+nodeenv);
+      let value = await SIMPAGE_DATA.get("test");
+      strings += ("value:"+value);
+      let value3 = await env.SIMPAGE_DATA.get("test");
+      strings += ("value3:"+value3);
+      let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
+      strings += ("value1:"+value1);
+      let value2 = await SIMPAGE_DATA.get("data", "json");
+      strings += ("value2:"+value2);
   }catch{
-    strings += "error";
+      strings += "error";
   }
   return new Response(strings, { status: 200 });
 
