@@ -707,7 +707,7 @@ async function handleRequest(request, env, runtime, clientIp) {
   }
 }
 
-export async function onRequestGet({ request, params, env }) {
+export async function onRequest({ request, params, env }) {
   let value = await SIMPAGE_DATA.get("test");
   let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
   let value2 = await SIMPAGE_DATA.get("data", "json");
