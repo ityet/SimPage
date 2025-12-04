@@ -278,238 +278,42 @@ class EdgeOneKVStorage {
     const { passwordHash, passwordSalt } = await this.hashPassword(DEFAULT_ADMIN_PASSWORD);
     
     const defaultData = {
-  settings: {
-    siteName: "Navs",
-    siteLogo: "🎐",
-    greeting: "",
-    footer: "** LeoNavs ** 不断学习，不断尝试，不断进步！！",
-    weather: {
-      city: "杭州"
-    }
-  },
-  apps: [
-    {
-      id: "f479451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "群晖QC",
-      url: "https://mumupudding.quickconnect.cn/",
-      description: "群晖quickconnect,其它自定义域名nas.itmax|ityet.cn|only.ydns.eu|igogo.dns.navy",
-      icon: "🖥️"
-    },
-    {
-      id: "e879451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "ITmax短链接",
-      url: "https://dwz.ityet.com/",
-      description: "ITyet短链接",
-      icon: "🏠"
-    },
-    {
-      id: "d979451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "ITmax短链接",
-      url: "https://dwz.itmax.cn/",
-      description: "ITmax短链接",
-      icon: "🧭"
-    },
-    {
-      id: "f379451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "Edge短链接",
-      url: "https://tz.itmax.cn/",
-      description: "短链接生成与管理",
-      icon: "🔗"
-    },
-    {
-      id: "e979451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "Alist网盘",
-      url: "https://alist.ityet.com/",
-      description: "多网盘聚合管理工具",
-      icon: "📁"
-    },
-    {
-      id: "e779451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "DNS聚合",
-      url: "https://ddns.ityet.com/",
-      description: "动态DNS管理平台",
-      icon: ""
-    },
-    {
-      id: "e679451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "New API",
-      url: "https://openai.ityet.com:99/",
-      description: "OpenAI接口代理服务",
-      icon: "🤖"
-    },
-    {
-      id: "e579451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "CloudPaste",
-      url: "https://aot.dpdns.org/",
-      description: "在线剪贴板服务",
-      icon: "📋"
-    },
-    {
-      id: "e279451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "TTS语音",
-      url: "https://tts.itmax.cn/",
-      description: "语音合成测试页面",
-      icon: "🎙️"
-    },
-    {
-      id: "e079451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "SubsCheck",
-      url: "https://kmikcibdsomx.ap-northeast-1.clawcloudrun.com/admin",
-      description: "订阅有效性检测工具",
-      icon: "✅"
-    },
-    {
-      id: "d879451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "禅道",
-      url: "https://zentao.ityet.com/index.php?m=my&f=index",
-      description: "项目管理平台",
-      icon: "📊"
-    },
-    {
-      id: "d779451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "NanoBanana",
-      url: "https://banana.itmax.cn/",
-      description: "轻量级服务工具",
-      icon: "🍌"
-    },
-    {
-      id: "f779451e-579d-4ca1-be9e-31bc7d708cae",
-      name: "Omnibox",
-      url: "https://omni.ityet.com/",
-      description: "电影动漫资源站，支持网盘搜索",
-      icon: "🍿"
-    },
-    {
-      id: "1deddfd0-93a9-4955-a1b9-d529c2f3d86d",
-      name: "LibreTV",
-      url: "https://libre.itmax.cn/",
-      description: "Libre电影动漫资源站，部署在腾讯Eadge上",
-      icon: "🎬"
-    },
-    {
-      id: "d5acc4fb-20f2-4edb-a1b3-9eb519b12e81",
-      name: "青龙面板",
-      url: "https://dragon.ityet.com/",
-      description: "青龙面板",
-      icon: "🐉"
-    },
-    {
-      id: "d6399012-3909-4164-93bb-96aca15bd721",
-      name: "订阅聚合",
-      url: "https://subs.ityet.com:99/subs",
-      description: "聚合所有订阅",
-      icon: "🦄"
-    },
-    {
-      id: "dffb313a-075a-4de5-86f9-3ae35e69ccbe",
-      name: "Cloudflare生图",
-      url: "https://imgen.coffe.dpdns.org/",
-      description: "Cloudflare生图",
-      icon: "🎆"
-    },
-    {
-      id: "1cfb10f0-9629-4096-b2b7-95102d314159",
-      name: "Lobe",
-      url: "https://lobe.ityet.com/",
-      description: "LobeAI助手，部署在Vercel",
-      icon: "https://lobe.ityet.com/favicon.ico"
-    },
-    {
-      id: "9d8b47d5-c7aa-40de-a21e-9cb09792028f",
-      name: "Download",
-      url: "https://down.ityet.com:99/",
-      description: "文件托管&下载",
-      icon: "💾"
-    },
-    {
-      id: "f1f34344-864b-4382-ae69-1b6a08dfb109",
-      name: "Danmu",
-      url: "https://danmu.itmax.cn/danmu",
-      description: "自建弹幕服务",
-      icon: "🎼"
-    },
-    {
-      id: "bc0fc626-f5a3-4d8e-9548-08a4ff488469",
-      name: "订阅转换",
-      url: "https://sub.ityet.com/",
-      description: "自建订阅转换",
-      icon: "🥨"
-    }
-  ],
-  bookmarks: [
-    {
-      id: "bookmark-oschina",
-      name: "开源中国",
-      url: "https://www.oschina.net/",
-      description: "聚焦开源信息与技术社区。",
-      icon: "🌐",
-      category: "技术社区"
-    },
-    {
-      id: "bookmark-sspai",
-      name: "少数派",
-      url: "https://sspai.com/",
-      description: "关注效率工具与生活方式的媒体。",
-      icon: "📰",
-      category: "效率与生活"
-    },
-    {
-      id: "bookmark-zhihu",
-      name: "知乎",
-      url: "https://www.zhihu.com/",
-      description: "问答与知识分享社区。",
-      icon: "❓",
-      category: "知识学习"
-    },
-    {
-      id: "bookmark-jike",
-      name: "即刻",
-      url: "https://m.okjike.com/",
-      description: "兴趣社交与资讯聚合平台。",
-      icon: "📮",
-      category: "资讯聚合"
-    },
-    {
-      id: "bookmark-juejin",
-      name: "稀土掘金",
-      url: "https://juejin.cn/",
-      description: "开发者技术社区与优质内容。",
-      icon: "💡",
-      category: "技术社区"
-    },
-    {
-      id: "1441d3db-027b-42d3-ab54-3a9c0fbcc616",
-      name: "LinuxDO",
-      url: "https://linux.do/",
-      description: "LinuxDO社区",
-      icon: "🥥",
-      category: "技术社区"
-    },
-    {
-      id: "b5a03869-5de8-40df-b4a9-b74e890606b9",
-      name: "Github加速聚合",
-      url: "https://github.akams.cn/",
-      description: "Github加速聚合",
-      icon: "🗻",
-      category: "实用工具"
-    },
-    {
-      id: "17646223-cbf9-42d5-9f3b-afc8b261cdfc",
-      name: "Ghfast加速",
-      url: "https://ghfast.top/",
-      description: "Github镜像加速",
-      icon: "🚀",
-      category: "实用工具"
-    }
-  ],
-  stats: {
-    visitorCount: 72
-  },
-  admin: {
-    passwordHash: "1a968cba0c9a05b2b235aa54a29bc91ef30a5a8a202dc290cf862070e14e259fad87c94f6f33ce1b2b36a75b233ef282b1298ca12fc96894a3abf38ff9e75b8a",
-    passwordSalt: "fc87045b067a37f3cb01105a91b55b10"
-  }
-};
+      settings: {
+        siteName: "SimPage",
+        siteLogo: "",
+        greeting: "",
+        footer: "",
+        weather: { city: ["北京"] }
+      },
+      apps: [
+        {
+          id: "app-figma",
+          name: "Figma",
+          url: "https://www.figma.com/",
+          description: "协作式界面设计工具。",
+          icon: "https://icon.ooo/www.figma.com"
+        },
+        {
+          id: "app-notion",
+          name: "Notion",
+          url: "https://www.notion.so/",
+          description: "多合一的笔记与知识管理平台。",
+          icon: "https://icon.ooo/www.notion.so"
+        }
+      ],
+      bookmarks: [
+        {
+          id: "bookmark-oschina",
+          name: "开源中国",
+          url: "https://www.oschina.net/",
+          description: "聚焦开源信息与技术社区。",
+          icon: "https://icon.ooo/www.oschina.net",
+          category: "技术社区"
+        }
+      ],
+      stats: { visitorCount: 0 },
+      admin: { passwordHash, passwordSalt }
+    };
     
     console.log("Created default data with admin password:", DEFAULT_ADMIN_PASSWORD);
     return defaultData;
@@ -905,7 +709,10 @@ async function handleRequest(request, env, runtime, clientIp) {
 
 export const onRequest = async (context) => {
   const { request, env } = context;
-
+  let value = await SIMPAGE_DATA.get("test");
+  let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
+  let value2 = await SIMPAGE_DATA.get("data", "json");
+  return new Response(value+value1+value2, { status: 200 });
   // 获取客户端 IP 地址
   let clientIp = 'unknown';
 
