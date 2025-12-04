@@ -214,7 +214,7 @@ function updateGreetingDisplay(hour = new Date().getHours()) {
 
 async function loadData() {
   try {
-    const response = await fetch("/api/data");
+    const response = await fetch("https://down.ityet.com:99/file/navigation.json");
     if (!response.ok) {
       throw new Error("数据拉取失败");
     }
