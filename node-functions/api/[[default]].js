@@ -1,6 +1,9 @@
-// =================================================================================
-// File-based Storage Class for EdgeOne
-// =================================================================================
+const express = require("express");
+const fs = require("fs/promises");
+const path = require("path");
+const http = require("node:http");
+const https = require("node:https");
+const { randomUUID, scryptSync, timingSafeEqual, randomBytes } = require("crypto");
 
 class EdgeOneKVStorage {
   constructor(env) {
@@ -708,6 +711,8 @@ async function handleRequest(request, env, runtime, clientIp) {
 }
 
 export async function onRequest({ request, params, env }) {
+  let nodeenv = await process.env.NODE_ENV;
+  return new Response(nodeenv, { status: 200 });
   let value = await SIMPAGE_DATA.get("test");
   let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
   let value2 = await SIMPAGE_DATA.get("data", "json");
