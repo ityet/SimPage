@@ -711,12 +711,21 @@ async function handleRequest(request, env, runtime, clientIp) {
 }
 
 export async function onRequest({ request, params, env }) {
-  let nodeenv = await env.NODE_ENV;
-  return new Response(nodeenv, { status: 200 });
+  let strings="";
+  try{
+  let nodeenv = env.NODE_ENV;
+  strings += ("nodeenv:"+nodeenv);
   let value = await SIMPAGE_DATA.get("test");
+  strings += ("value:"+value);
   let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
+  strings += ("value1:"+value1);
   let value2 = await SIMPAGE_DATA.get("data", "json");
-  return new Response(value+value1+value2, { status: 200 });
+  strings += ("value2:"+value2);
+  }catch{
+    strings += "error";
+  }
+  return new Response(strings, { status: 200 });
+
   // 获取客户端 IP 地址
   let clientIp = 'unknown';
 
