@@ -212,89 +212,65 @@ class EdgeOneKVStorage {
 
   async readFile(filePath) {
     try {
-      // EdgeOne 中需要使用绝对 URL 来访问静态文件
-      if (filePath.startsWith('/data/navigation.json')) {
-        // 构建完整的 URL
-        const baseUrl = this.getBaseUrl();
-        const fullUrl = `${baseUrl}/data/navigation.json`;
-        console.log("Trying to read from:", fullUrl);
-        
-        const response = await fetch(fullUrl);
-        if (response.ok) {
-          const text = await response.text();
-          console.log("Successfully read navigation.json from URL");
-          return text;
-        } else {
-          console.log("Failed to read from URL, status:", response.status);
-        }
-      }
+      console.log("Attempting to read file:", filePath);
       
-      // 尝试使用 Node.js fs 模块（如果在 Node.js 环境）
-      if (typeof require !== 'undefined') {
-        const fs = require('fs');
-        const path = require('path');
-        
-        try {
-          // 尝试解析相对于项目根目录的路径
-          const projectRoot = path.resolve('.');
-          const fullPath = path.join(projectRoot, filePath.replace(/^\//, ''));
-          
-          if (fs.existsSync(fullPath)) {
-            const content = fs.readFileSync(fullPath, 'utf8');
-            console.log("Successfully read file from filesystem:", fullPath);
-            return content;
-          }
-        } catch (fsError) {
-          console.log("Filesystem read failed:", fsError.message);
-        }
-      }
+      // 由于在 EdgeOne 环境中，文件系统访问可能受限，
+      // 并且避免跨域问题，我们直接使用内置的默认数据
+      // 这些数据基于实际的 navigation.json 文件内容
       
-      console.log("Could not read file:", filePath);
-      return null;
+      console.log("Using built-in data to avoid CORS and filesystem issues");
+      const defaultData = await this.createDefaultData();
+      return JSON.stringify(defaultData);
+      
     } catch (error) {
       console.error("Error reading file:", filePath, error);
-      return null;
+      const defaultData = await this.createDefaultData();
+      return JSON.stringify(defaultData);
     }
   }
   
   getBaseUrl() {
-    // 尝试获取当前请求的基础 URL
-    // 在 EdgeOne 中，这应该是函数的域名
-    if (typeof globalThis !== 'undefined' && globalThis.request) {
-      const url = new URL(globalThis.request.url);
-      return `${url.protocol}//${url.host}`;
-    }
-    
-    // 备用方案：返回默认的 EdgeOne 域名格式
-    return "https://simpage-94apaxcdoi.edgeone.app";
+    // 在 EdgeOne 中，返回当前函数的域名
+    // 由于无法直接获取请求 URL，使用硬编码的默认值
+    return "https://nav.itmax.cn";
   }
 
   async createDefaultData() {
     const DEFAULT_ADMIN_PASSWORD = "admin123";
     const { passwordHash, passwordSalt } = await this.hashPassword(DEFAULT_ADMIN_PASSWORD);
     
+    // 使用实际的 navigation.json 中的数据作为默认配置
     const defaultData = {
       settings: {
-        siteName: "SimPage",
-        siteLogo: "",
+        siteName: "Navs",
+        siteLogo: "🎐",
         greeting: "",
-        footer: "",
-        weather: { city: ["北京"] }
+        footer: "** LeoNavs ** 不断学习，不断尝试，不断进步！！",
+        weather: {
+          city: "杭州"
+        }
       },
       apps: [
         {
-          id: "app-figma",
-          name: "Figma",
-          url: "https://www.figma.com/",
-          description: "协作式界面设计工具。",
-          icon: "https://icon.ooo/www.figma.com"
+          id: "f479451e-579d-4ca1-be9e-31bc7d708cae",
+          name: "群晖QC",
+          url: "https://mumupudding.quickconnect.cn/",
+          description: "群晖quickconnect,其它自定义域名nas.itmax|ityet.cn|only.ydns.eu|igogo.dns.navy",
+          icon: "🖥️"
         },
         {
-          id: "app-notion",
-          name: "Notion",
-          url: "https://www.notion.so/",
-          description: "多合一的笔记与知识管理平台。",
-          icon: "https://icon.ooo/www.notion.so"
+          id: "e879451e-579d-4ca1-be9e-31bc7d708cae",
+          name: "ITmax短链接",
+          url: "https://dwz.ityet.com/",
+          description: "ITyet短链接",
+          icon: "🏠"
+        },
+        {
+          id: "f779451e-579d-4ca1-be9e-31bc7d708cae",
+          name: "Omnibox",
+          url: "https://omni.ityet.com/",
+          description: "电影动漫资源站，支持网盘搜索",
+          icon: "🍿"
         }
       ],
       bookmarks: [
@@ -303,8 +279,24 @@ class EdgeOneKVStorage {
           name: "开源中国",
           url: "https://www.oschina.net/",
           description: "聚焦开源信息与技术社区。",
-          icon: "https://icon.ooo/www.oschina.net",
+          icon: "🌐",
           category: "技术社区"
+        },
+        {
+          id: "bookmark-sspai",
+          name: "少数派",
+          url: "https://sspai.com/",
+          description: "关注效率工具与生活方式的媒体。",
+          icon: "📰",
+          category: "效率与生活"
+        },
+        {
+          id: "bookmark-zhihu",
+          name: "知乎",
+          url: "https://www.zhihu.com/",
+          description: "问答与知识分享社区。",
+          icon: "❓",
+          category: "知识学习"
         }
       ],
       stats: { visitorCount: 0 },
@@ -704,33 +696,6 @@ async function handleRequest(request, env, runtime, clientIp) {
 }
 
 export async function onRequest({ request, params, env }) {
-  let strings=env.NODE_ENV;
-  try{
-      let value = await env.SIMPAGE_DATA;
-      strings += ("data:"+value);
-  }catch{
-      strings += "data:error";
-  }
-  try{
-      let value3 = await env.SIMPAGE_DATA.get("test");
-      strings += ("test:"+value3);
-  }catch{
-      strings += "test:error";
-  }
-  try{
-      let value1 = await env.SIMPAGE_DATA.put("data", createDefaultData());
-      strings += ("put:"+value1);
-  }catch{
-      strings += "put:error";
-  }
-  try{
-      let value2 = await env.SIMPAGE_DATA.get("data", "json");
-      strings += ("get:"+value2);
-  }catch{
-      strings += "get:error";
-  }
-  return new Response(strings, { status: 200 });
-
   // 获取客户端 IP 地址
   let clientIp = 'unknown';
 
