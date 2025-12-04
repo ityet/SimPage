@@ -12,8 +12,11 @@
   "license": "MIT",
   "dependencies": {
     "@cloudflare/kv-asset-handler": "^0.3.0",
+    "@tencentcloud/tcf-edge-sdk": "^1.0.0",
+    "@tencentcloud/sdk": "^2.6.0",
     "itty-router": "^4.0.23",
     "dotenv": "^16.4.7",
+    "node-fetch": "^3.3.2",
     "express": "^4.18.2"
   },
   "devDependencies": {
