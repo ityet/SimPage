@@ -711,7 +711,7 @@ async function handleRequest(request, env, runtime, clientIp) {
 }
 
 export async function onRequest({ request, params, env }) {
-  let nodeenv = await process.env.NODE_ENV;
+  let nodeenv = await env.NODE_ENV;
   return new Response(nodeenv, { status: 200 });
   let value = await SIMPAGE_DATA.get("test");
   let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
