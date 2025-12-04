@@ -708,9 +708,9 @@ async function handleRequest(request, env, runtime, clientIp) {
 }
 
 export async function onRequest({ request, params, env }) {
-  let value = await env.SIMPAGE_DATA.get("test");
-  let value1 = await env.SIMPAGE_DATA.put("data", createDefaultData());
-  let value2 = await env.SIMPAGE_DATA.get("data", "json");
+  let value = await SIMPAGE_DATA.get("test");
+  let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
+  let value2 = await SIMPAGE_DATA.get("data", "json");
   return new Response(value+value1+value2, { status: 200 });
   // 获取客户端 IP 地址
   let clientIp = 'unknown';
