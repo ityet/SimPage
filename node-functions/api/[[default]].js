@@ -704,20 +704,30 @@ async function handleRequest(request, env, runtime, clientIp) {
 }
 
 export async function onRequest({ request, params, env }) {
-  let strings="";
+  let strings=env.NODE_ENV;
   try{
-      let nodeenv = env.NODE_ENV;
-      strings += ("nodeenv:"+nodeenv);
-      let value = await SIMPAGE_DATA.get("test");
-      strings += ("value:"+value);
-      let value3 = await env.SIMPAGE_DATA.get("test");
-      strings += ("value3:"+value3);
-      let value1 = await SIMPAGE_DATA.put("data", createDefaultData());
-      strings += ("value1:"+value1);
-      let value2 = await SIMPAGE_DATA.get("data", "json");
-      strings += ("value2:"+value2);
+      let value = await env.SIMPAGE_DATA;
+      strings += ("data:"+value);
   }catch{
-      strings += "error";
+      strings += "data:error";
+  }
+  try{
+      let value3 = await env.SIMPAGE_DATA.get("test");
+      strings += ("test:"+value3);
+  }catch{
+      strings += "test:error";
+  }
+  try{
+      let value1 = await env.SIMPAGE_DATA.put("data", createDefaultData());
+      strings += ("put:"+value1);
+  }catch{
+      strings += "put:error";
+  }
+  try{
+      let value2 = await env.SIMPAGE_DATA.get("data", "json");
+      strings += ("get:"+value2);
+  }catch{
+      strings += "get:error";
   }
   return new Response(strings, { status: 200 });
 
