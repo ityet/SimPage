@@ -1,0 +1,14 @@
+name = "simpage-api"
+compatibility_date = "2023-12-01"
+
+[env.production]
+name = "simpage-api"
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+# KV命名空间配置
+[[env.production.kv_namespaces]]
+binding = "KV_NAMESPACE"
+id = "simpage-kv"
+preview_id = "simpage-kv-preview"

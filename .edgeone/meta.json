@@ -1,0 +1,54 @@
+{
+  "conf": {
+    "headers": [],
+    "redirects": [],
+    "rewrites": [
+      {
+        "source": "/",
+        "destination": "/public"
+      },
+      {
+        "source": "/admin",
+        "destination": "/public/admin.html"
+      },
+      {
+        "source": "/styles.css",
+        "destination": "/public/styles.css"
+      },
+      {
+        "source": "/data/*",
+        "destination": "/data/:splat"
+      },
+      {
+        "source": "/scripts/*",
+        "destination": "/public/scripts/:splat"
+      },
+      {
+        "source": "/simpage-logo.svg",
+        "destination": "/public/simpage-logo.svg"
+      }
+    ],
+    "caches": [],
+    "outputDirectory": "./",
+    "has404": false
+  },
+  "has404": false,
+  "nodeFunctionsRoutes": [
+    {
+      "routePath": "/api/:default*",
+      "mountPath": "/api",
+      "method": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "module": [
+        "node-functions/api/[[default]].js:onRequest"
+      ]
+    }
+  ]
+}

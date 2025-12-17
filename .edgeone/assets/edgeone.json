@@ -1,0 +1,42 @@
+{
+  "name": "simpage-worker",
+  "version": "1.1.0",
+  "description": "现代化导航页，由 Cloudflare Workers 驱动",
+  "outputDirectory": "./",
+  "environmentVariables": {
+    "SIMPAGE_DATA": "simpage-data-kv",
+    "SESSIONS": "simpage-sessions-kv",
+    "SIMPAGE_DATA_KV": "simpage-data-kv",
+    "SESSIONS_KV": "simpage-sessions-kv"
+  },
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/public"
+    },
+    {
+      "source": "/admin",
+      "destination": "/public/admin.html"
+    },
+    {
+      "source": "/styles.css",
+      "destination": "/public/styles.css"
+    },
+    {
+      "source": "/data/*",
+      "destination": "/data/:splat"
+    },
+    {
+      "source": "/scripts/*",
+      "destination": "/public/scripts/:splat"
+    },
+    {
+      "source": "/simpage-logo.svg",
+      "destination": "/public/simpage-logo.svg"
+    },
+    {
+      "source": "/api/*",
+      "destination": "/node-functions/api/[[default]].js"
+    }
+  ]
+}

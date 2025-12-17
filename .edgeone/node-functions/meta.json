@@ -1,0 +1,20 @@
+{
+  "routes": [
+    {
+      "routePath": "/api/:default*",
+      "mountPath": "/api",
+      "method": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "module": [
+        "node-functions/api/[[default]].js:onRequest"
+      ]
+    }
+  ]
+}
