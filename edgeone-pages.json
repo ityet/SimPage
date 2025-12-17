@@ -1,0 +1,28 @@
+{
+  "name": "SimPage",
+  "version": "1.0.0",
+  "description": "SimPage navigation page for EdgeOne Pages",
+  "main": "node-functions/api/[[default]].js",
+  "functions": {
+    "node-functions/api/[[default]].js": {
+      "runtime": "nodejs18.x",
+      "handler": "onRequest"
+    }
+  },
+  "kv": {
+    "namespace": "SIMPAGE_KV",
+    "bindings": [
+      {
+        "name": "KV_NAMESPACE",
+        "type": "kv"
+      }
+    ]
+  },
+  "environment": {
+    "NODE_ENV": "production"
+  },
+  "build": {
+    "command": "npm run build",
+    "output": "dist"
+  }
+}

@@ -1,94 +1,181 @@
 class EdgeOneKVStorage {
   constructor(env) {
     this.env = env || {};
-    this.dataFile = '/data/navigation.json';
-    this.sessionsFile = '/tmp/sessions.json';
-    this.initializeFileStorage();
-    this.cleanupExpiredSessions();
+    this.NAMESPACE = {
+      NAVIGATION: "navigation_data",
+      SESSIONS: "session_data",
+      CONFIG: "config_data"
+    };
+    this.DEFAULT_TTL = 30 * 24 * 60 * 60; // 30天
+    this.SESSION_TTL = 12 * 60 * 60; // 12小时
+    console.log("Initializing EdgeOne Pages KV Storage");
   }
   
-  initializeFileStorage() {
-    console.log("Initializing file-based storage for EdgeOne...");
-    // 在 EdgeOne 中，我们直接从文件系统读取数据
-    this.fileSystem = require('fs');
-    this.path = require('path');
-  }
-  
-  cleanupExpiredSessions() {
-    // 定期清理过期会话
-    setInterval(() => {
-      this.cleanExpiredSessions();
-    }, 5 * 60 * 1000); // 每5分钟清理一次
-  }
-  
-  cleanExpiredSessions() {
-    const now = Date.now();
-    let cleanedCount = 0;
-    
-    // 清理全局会话
-    if (typeof globalThis !== 'undefined' && globalThis.simpageSessions) {
-      for (const [token, sessionData] of globalThis.simpageSessions) {
+  async cleanupExpiredSessions() {
+    try {
+      const now = Date.now();
+      const sessionsData = await this.getKVData(this.NAMESPACE.SESSIONS, {});
+      let cleanedCount = 0;
+      
+      // 清理过期会话
+      for (const [token, sessionData] of Object.entries(sessionsData)) {
         if (sessionData.expires && now > sessionData.expires) {
-          globalThis.simpageSessions.delete(token);
+          delete sessionsData[token];
           cleanedCount++;
         }
       }
+      
       if (cleanedCount > 0) {
-        console.log(`Cleaned ${cleanedCount} expired sessions from global storage`);
+        await this.setKVData(this.NAMESPACE.SESSIONS, sessionsData);
+        console.log(`Cleaned ${cleanedCount} expired sessions from KV storage`);
       }
-    }
-    
-    // 清理实例会话
-    if (this.memorySessions) {
-      let instanceCleanedCount = 0;
-      for (const [token, sessionData] of this.memorySessions) {
-        if (sessionData.expires && now > sessionData.expires) {
-          this.memorySessions.delete(token);
-          instanceCleanedCount++;
-        }
-      }
-      if (instanceCleanedCount > 0) {
-        console.log(`Cleaned ${instanceCleanedCount} expired sessions from instance storage`);
-      }
+    } catch (error) {
+      console.error("Error during session cleanup:", error);
     }
   }
-  
 
+  // KV存储辅助函数方法
+  async getKVData(key, defaultValue = null) {
+    try {
+      // 在EdgeOne Pages中，通过env访问KV
+      if (this.env && this.env.KV_NAMESPACE) {
+        const value = await this.env.KV_NAMESPACE.get(key);
+        return value ? JSON.parse(value) : defaultValue;
+      }
+      
+      // 备用方案：全局存储
+      if (typeof globalThis !== 'undefined' && globalThis.kvStorage) {
+        const item = globalThis.kvStorage.get(key);
+        if (item) {
+          if (item.expires && Date.now() > item.expires) {
+            globalThis.kvStorage.delete(key);
+            return defaultValue;
+          }
+          return JSON.parse(item.value);
+        }
+      }
+      
+      return defaultValue;
+    } catch (error) {
+      console.error(`Error getting KV data for key ${key}:`, error);
+      return defaultValue;
+    }
+  }
+
+  async setKVData(key, value, options = {}) {
+    try {
+      const ttl = options.ttl || this.DEFAULT_TTL;
+      const jsonValue = JSON.stringify(value);
+      
+      // 在EdgeOne Pages中，通过env访问KV
+      if (this.env && this.env.KV_NAMESPACE) {
+        await this.env.KV_NAMESPACE.put(key, jsonValue, {
+          expirationTtl: ttl
+        });
+        console.log(`Successfully stored data to KV with key: ${key}`);
+        return true;
+      }
+      
+      // 备用方案：全局存储
+      if (typeof globalThis !== 'undefined') {
+        if (!globalThis.kvStorage) {
+          globalThis.kvStorage = new Map();
+        }
+        globalThis.kvStorage.set(key, {
+          value: jsonValue,
+          expires: ttl ? Date.now() + (ttl * 1000) : null
+        });
+        console.log(`Stored data in global storage with key: ${key}`);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error(`Error setting KV data for key ${key}:`, error);
+      return false;
+    }
+  }
+
+  async getExternalData() {
+    try {
+      const externalUrl = "https://down.ityet.com:99/file/navigation.json";
+      console.log("Fetching navigation data from external URL:", externalUrl);
+      
+      const response = await fetch(externalUrl, {
+        headers: {
+          'User-Agent': 'SimPage-EdgeOne/1.0',
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Successfully fetched navigation data from external URL");
+        return data;
+      } else {
+        console.log("External fetch failed, status:", response.status);
+        return null;
+      }
+    } catch (error) {
+      console.log("External fetch error:", error.message);
+      return null;
+    }
+  }
 
   async readFullData() {
     try {
-      console.log("Reading data from file:", this.dataFile);
+      console.log("Reading navigation data from KV storage");
       
-      // 从文件读取数据
-      const rawData = await this.readFile(this.dataFile);
-      if (rawData) {
-        console.log("Successfully read data from file");
-        const parsed = JSON.parse(rawData);
-        return parsed;
+      // 首先尝试从KV存储读取
+      const kvData = await this.getKVData(this.NAMESPACE.NAVIGATION);
+      if (kvData) {
+        console.log("Successfully read navigation data from KV");
+        return kvData;
       }
       
-      console.log("No data file found, using default data...");
+      // 如果KV中没有数据，尝试从外部URL获取
+      console.log("No KV data found, trying external URL...");
+      const externalData = await this.getExternalData();
+      if (externalData) {
+        // 将外部数据存储到KV中
+        await this.setKVData(this.NAMESPACE.NAVIGATION, externalData);
+        console.log("Stored external data to KV storage");
+        return externalData;
+      }
+      
+      // 如果都没有，使用默认数据
+      console.log("No external data found, using default data...");
       const defaultData = await this.createDefaultData();
+      await this.setKVData(this.NAMESPACE.NAVIGATION, defaultData);
       return defaultData;
     } catch (error) {
-      console.error("读取数据失败:", error);
-      // 如果读取失败，使用默认数据
+      console.error("读取导航数据失败:", error);
       console.log("Using default data as fallback");
       const defaultData = await this.createDefaultData();
+      try {
+        await this.setKVData(this.NAMESPACE.NAVIGATION, defaultData);
+      } catch (e) {
+        console.error("Failed to store default data:", e);
+      }
       return defaultData;
     }
   }
 
   async writeFullData(fullData) {
     try {
-      console.log("Writing data to file:", this.dataFile);
+      console.log("Writing navigation data to KV storage");
       
-      // 对于 EdgeOne，我们只支持读取，不支持写入文件
-      // 返回成功，但不实际写入
-      console.log("Write operation skipped (read-only mode for EdgeOne)");
-      return;
+      // 写入到KV存储
+      const success = await this.setKVData(this.NAMESPACE.NAVIGATION, fullData);
+      if (success) {
+        console.log("Successfully wrote navigation data to KV storage");
+        return;
+      } else {
+        throw new Error("Failed to write to KV storage");
+      }
     } catch (error) {
-      console.error("写入数据失败:", error);
+      console.error("写入导航数据失败:", error);
       throw new Error(`写入数据失败: ${error.message}`);
     }
   }
@@ -97,38 +184,21 @@ class EdgeOneKVStorage {
     try {
       console.log("Getting session for token:", token.substring(0, 10) + "...");
       
-      // EdgeOne 专注于全局对象存储
-      if (typeof globalThis !== 'undefined') {
-        if (!globalThis.simpageSessions) {
-          globalThis.simpageSessions = new Map();
-        }
-        
-        const sessionData = globalThis.simpageSessions.get(token);
-        if (sessionData) {
-          // 检查是否过期
-          if (sessionData.expires && Date.now() > sessionData.expires) {
-            globalThis.simpageSessions.delete(token);
-            console.log("Session expired");
-            return null;
-          }
-          console.log("Session found in global storage");
-          return sessionData.value;
-        }
-      }
+      // 首先从KV存储获取会话数据
+      const sessionsData = await this.getKVData(this.NAMESPACE.SESSIONS, {});
+      const sessionData = sessionsData[token];
       
-      // 备用方案：实例内存存储
-      if (this.memorySessions) {
-        const sessionData = this.memorySessions.get(token);
-        if (sessionData) {
-          // 检查是否过期
-          if (sessionData.expires && Date.now() > sessionData.expires) {
-            this.memorySessions.delete(token);
-            console.log("Session expired in instance memory");
-            return null;
-          }
-          console.log("Session found in instance memory");
-          return sessionData.value;
+      if (sessionData) {
+        // 检查是否过期
+        if (sessionData.expires && Date.now() > sessionData.expires) {
+          // 删除过期会话
+          delete sessionsData[token];
+          await this.setKVData(this.NAMESPACE.SESSIONS, sessionsData);
+          console.log("Session expired and removed from KV");
+          return null;
         }
+        console.log("Session found in KV storage");
+        return sessionData.value;
       }
       
       console.log("Session not found");
@@ -148,21 +218,20 @@ class EdgeOneKVStorage {
         expires: options && options.ttl ? Date.now() + (options.ttl * 1000) : null
       };
       
-      // EdgeOne 专注于全局对象存储
-      if (typeof globalThis !== 'undefined') {
-        if (!globalThis.simpageSessions) {
-          globalThis.simpageSessions = new Map();
-        }
-        globalThis.simpageSessions.set(token, sessionData);
-        console.log("Session stored in global storage");
-      }
+      // 获取现有会话数据
+      const sessionsData = await this.getKVData(this.NAMESPACE.SESSIONS, {});
+      sessionsData[token] = sessionData;
       
-      // 备用方案：实例内存存储
-      if (!this.memorySessions) {
-        this.memorySessions = new Map();
+      // 存储到KV
+      const success = await this.setKVData(this.NAMESPACE.SESSIONS, sessionsData, {
+        ttl: this.SESSION_TTL
+      });
+      
+      if (success) {
+        console.log("Session stored in KV storage");
+      } else {
+        console.log("Failed to store session in KV, continuing anyway");
       }
-      this.memorySessions.set(token, sessionData);
-      console.log("Session stored in instance memory as backup");
       
       return;
     } catch (error) {
@@ -171,89 +240,18 @@ class EdgeOneKVStorage {
     }
   }
 
-  async getSessionFromFile(token) {
-    try {
-      // EdgeOne 中，会话文件可能不可用，直接跳过文件存储
-      // 专注于使用全局存储和内存存储
-      console.log("Skipping file-based session storage for EdgeOne");
-      return null;
-    } catch (error) {
-      console.error("Error reading session from file:", error);
-      return null;
-    }
-  }
-
-  async saveSessionToFile(token, sessionData) {
-    try {
-      // EdgeOne 中，跳过文件存储，专注于全局和内存存储
-      console.log("Skipping file-based session save for EdgeOne");
-    } catch (error) {
-      console.error("Error saving session to file:", error);
-      // 文件保存失败不是致命错误，继续使用内存存储
-    }
-  }
-
-  async writeFile(filePath, content) {
-    try {
-      // 在 EdgeOne 中，文件写入可能不可用，但我们可以尝试
-      const response = await fetch(filePath, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: content
-      });
-      return response.ok;
-    } catch (error) {
-      console.error("Error writing file:", filePath, error);
-      return false;
-    }
-  }
-
-  async readFile(filePath) {
-    try {
-      console.log("Attempting to read file:", filePath);
-      
-      // 尝试从外部域名获取数据（EdgeOne服务端请求没有CORS限制）
-      if (filePath.startsWith('/data/navigation.json')) {
-        try {
-          const externalUrl = "https://down.ityet.com:99/file/navigation.json";
-          console.log("Fetching data from external URL:", externalUrl);
-          
-          const response = await fetch(externalUrl, {
-            headers: {
-              'User-Agent': 'SimPage-EdgeOne/1.0',
-              'Accept': 'application/json',
-            },
-          });
-          
-          if (response.ok) {
-            const text = await response.text();
-            console.log("Successfully fetched data from external URL");
-            return text;
-          } else {
-            console.log("External fetch failed, status:", response.status);
-          }
-        } catch (fetchError) {
-          console.log("External fetch error:", fetchError.message);
-        }
+  getBaseUrl(request) {
+    // 在 EdgeOne Pages中，从请求中获取域名
+    if (request && request.url) {
+      try {
+        const url = new URL(request.url);
+        return `${url.protocol}//${url.host}`;
+      } catch (error) {
+        console.error("Error parsing request URL:", error);
       }
-      
-      // 如果外部获取失败，使用内置的默认数据作为后备
-      console.log("Using built-in data as fallback");
-      const defaultData = await this.createDefaultData();
-      return JSON.stringify(defaultData);
-      
-    } catch (error) {
-      console.error("Error reading file:", filePath, error);
-      const defaultData = await this.createDefaultData();
-      return JSON.stringify(defaultData);
     }
-  }
-  
-  getBaseUrl() {
-    // 在 EdgeOne 中，返回当前函数的域名
-    // 由于无法直接获取请求 URL，使用硬编码的默认值
+    
+    // 备用方案：返回默认域名
     return "https://nav.itmax.cn";
   }
 
@@ -369,6 +367,13 @@ let storage = null;
 function getStorage(env) {
   if (!storage) {
     storage = new EdgeOneKVStorage(env);
+    // 启动定期清理任务（在EdgeOne Pages中可能需要谨慎使用）
+    if (typeof setInterval !== 'undefined') {
+      // 每10分钟清理一次过期会话
+      setInterval(() => {
+        storage.cleanupExpiredSessions();
+      }, 10 * 60 * 1000);
+    }
   }
   return storage;
 }
@@ -638,14 +643,6 @@ async function requireAuth(request, env) {
   if (!session) {
     console.log("Session not found or expired for token:", token.substring(0, 10) + "...");
     
-    // 调试信息：检查全局会话状态
-    if (typeof globalThis !== 'undefined' && globalThis.simpageSessions) {
-      console.log("Global sessions count:", globalThis.simpageSessions.size);
-      for (const [k, v] of globalThis.simpageSessions) {
-        console.log(`Session ${k.substring(0, 10)}...:`, v);
-      }
-    }
-    
     return jsonResponse({ success: false, message: "登录状态已失效，请重新登录。" }, 401);
   }
   
@@ -681,7 +678,7 @@ async function incrementVisitorCountAndReadData(storage) {
 // Main Request Handler
 // =================================================================================
 
-async function handleRequest(request, env, runtime, clientIp) {
+async function handleRequest(request, env, runtime, clientIp, context = null) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
@@ -695,8 +692,8 @@ async function handleRequest(request, env, runtime, clientIp) {
         status: 200,
         headers: {
           'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Methods': "GET, POST, PUT, DELETE, OPTIONS",
+          'Access-Control-Allow-Headers': "Content-Type, Authorization",
         },
       });
     }
@@ -735,7 +732,7 @@ async function handleRequest(request, env, runtime, clientIp) {
     if (path === '/api/fetch-logo' && method === 'GET') {
       const authResult = await requireAuth(request, env);
       if (authResult) return authResult;
-      return await handleFetchLogo(request, env);
+      return handleFetchLogo(request, env);
     }
 
     if (path === '/api/proxy/navigation' && method === 'GET') {
@@ -759,7 +756,10 @@ async function handleRequest(request, env, runtime, clientIp) {
   }
 }
 
-export async function onRequest({ request, params, env }) {
+// EdgeOne Pages入口函数
+export async function onRequest(context) {
+  const { request, params, env } = context;
+  
   // 获取客户端 IP 地址
   let clientIp = 'unknown';
 
@@ -775,7 +775,25 @@ export async function onRequest({ request, params, env }) {
   }
 
   // 调用处理函数
-  return await handleRequest(request, env, "edgeone", clientIp);
+  return await handleRequest(request, env, "edgeone-pages", clientIp, context);
+};
+
+// Cloudflare Workers兼容性入口
+export default {
+  async fetch(request, env, ctx) {
+    // 获取客户端 IP 地址
+    let clientIp = 'unknown';
+    
+    clientIp = request.headers.get('cf-connecting-ip');
+    if (!clientIp) {
+      const forwardedFor = request.headers.get('x-forwarded-for');
+      if (forwardedFor) {
+        clientIp = forwardedFor.split(',')[0].trim();
+      }
+    }
+
+    return await handleRequest(request, env, "cloudflare-workers", clientIp, { request, env, ctx });
+  }
 };
 
 // =================================================================================
