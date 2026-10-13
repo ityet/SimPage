@@ -59,11 +59,16 @@ const FAVICON_API_ENDPOINT = "https://favicon.yy.luler.top/api/favicon";
 const FAVICON_REQUEST_TIMEOUT_MS = 25000;
 const FAVICON_TARGET_MAX_LENGTH = 2048;
 
-// 上游是 Go 写的，会把「域名解析不了 / URL 畸形」也塞进 5xx 返回（实测：
-// 不存在的域名 → 500 + {"error":"... dial tcp: lookup xxx: no such host"}）。
-// 这类是地址本身不可用，兜底只会往卡片里填一个必然加载失败的图标。
+// 上游是 Go 写的，会把「连不上目标站点」这类故障也塞进 5xx 返回。需要区分两层：
+// - 连接层 / TLS 层失败（dial tcp / tls: / x509:）→ 目标站点根本不可达，
+//   兜底填入的 <origin>/favicon.ico 会被浏览器以相同原因拒绝加载，必须不兜底。
+//   实测：不存在的域名 → "dial tcp: lookup xxx: no such host"；
+//         证书过期     → "tls: failed to verify certificate: x509: certificate has expired"；
+//         端口不通     → "dial tcp 127.0.0.1:9: connect: connection refused"。
+// - HTTP 层失败（"Website returned status code: 404" / "context deadline exceeded"）
+//   → 目标站点可达，兜底有意义，仍走降级。
 const UPSTREAM_TARGET_FAULT_PATTERN =
-  /no such host|no Host in request URL|unsupported protocol scheme|Invalid URL/i;
+  /dial tcp|tls:|x509:|no Host in request URL|unsupported protocol scheme|Invalid URL/i;
 
 // 默认站点配置（以 public/data/navigation.json 为准，全仓唯一来源）
 const DEFAULT_SETTINGS = Object.freeze({
@@ -1138,7 +1143,7 @@ async function handleFetchLogo(request) {
 
       // 两种都算「地址本身不可用」，不做兜底：
       // 1) 4xx —— 上游明确拒收这个地址
-      // 2) 5xx 但错误文本指向目标站点/URL 本身有问题（域名解析不了、URL 缺 Host 等）
+      // 2) 5xx 但属连接层 / TLS 层失败或 URL 畸形（目标站点根本连不上，详见 UPSTREAM_TARGET_FAULT_PATTERN）
       const targetUnusable =
         (response.status >= 400 && response.status < 500) ||
         UPSTREAM_TARGET_FAULT_PATTERN.test(upstreamMessage);
