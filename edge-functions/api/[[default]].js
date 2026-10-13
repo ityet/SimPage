@@ -1155,7 +1155,10 @@ export async function onRequest(context) {
       return await handleFetchLogo(request);
     }
 
-    return new Response("Not Found", { status: 404, headers: corsHeaders() });
+    // 所有落到这里的都是 /api/* 下的未命中请求（含"路径不存在"与"方法不支持"）。
+    // 返回 JSON 而非纯文本 "Not Found"：前端一律按 JSON 解析，
+    // 纯文本会抛出 "Unexpected token 'N', ..." 这种对用户毫无线索的解析错误。
+    return jsonResponse({ success: false, message: "接口不存在或请求方法不支持。" }, 404);
   } catch (error) {
     console.error("未处理的错误：", error);
     return jsonResponse({ success: false, message: error.message }, 500);
