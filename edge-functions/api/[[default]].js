@@ -923,6 +923,95 @@ async function handleDataUpdate(request) {
 }
 
 /**
+ * 书签查重指纹：补全协议、host 与 path 统一小写、忽略末尾斜杠与哈希。
+ *
+ * 保留 query 与端口 —— 很多站点的区分度恰在此处（如 `?id=1`、`:99`）。
+ * 非 http(s) 的畸形输入直接返回空串，调用方据此跳过查重（交给 normaliseItem 的校验）。
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+function bookmarkFingerprint(url) {
+  const raw = String(url || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return "";
+  try {
+    const parsed = new URL(raw);
+    const path = parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.protocol}//${parsed.host}${path}${parsed.search}`.toLowerCase();
+  } catch (error) {
+    return "";
+  }
+}
+
+/**
+ * POST /api/bookmarks —— 追加单条书签（浏览器扩展等外部客户端使用）。
+ *
+ * 设计取舍：外部客户端不应持有完整数据集。若走 `PUT /api/admin/data`，
+ * 客户端必须先拉全量（约 57KB）再整体覆盖写回，任何一次并发编辑都会被冲掉。
+ * 这里只做「读 → 追加 → 写」，把要写的数据面收敛到一条书签。
+ *
+ * 已知限制：KV 没有原子 CAS，同一瞬间的并发追加仍可能互相覆盖
+ * （个人导航页的写入频率下可接受，不做分布式锁）。
+ *
+ * @param {Request} request
+ * @returns {Promise<Response>}
+ */
+async function handleAddBookmark(request) {
+  let payload;
+  try {
+    payload = await request.json();
+  } catch (error) {
+    return jsonResponse({ success: false, message: "请求体不是合法的 JSON。" }, 400);
+  }
+
+  let item;
+  try {
+    // 忽略客户端传来的 id：本端点是「追加」语义，id 一律由服务端生成，
+    // 否则外部客户端可以塞一个与已有条目相同的 id，把数据搞成重复 id。
+    const source = payload && typeof payload === "object" ? { ...payload, id: "" } : payload;
+    item = normaliseItem(source, "bookmarks");
+  } catch (error) {
+    return jsonResponse({ success: false, message: error.message }, 400);
+  }
+
+  const navigation = await readNavigationData();
+
+  const fingerprint = bookmarkFingerprint(item.url);
+  if (fingerprint) {
+    const existing = (navigation.bookmarks || []).find(
+      (entry) => bookmarkFingerprint(entry && entry.url) === fingerprint,
+    );
+    if (existing) {
+      const suffix = existing.category ? `（${existing.category}）` : "";
+      return jsonResponse(
+        {
+          success: false,
+          duplicate: true,
+          message: `该链接已在书签中：${existing.name}${suffix}`,
+          item: existing,
+        },
+        409,
+      );
+    }
+  }
+
+  const bookmarks = (navigation.bookmarks || []).concat([item]);
+  await writeNavigationData({
+    settings: navigation.settings,
+    apps: navigation.apps,
+    bookmarks,
+  });
+
+  console.log(`新增书签：${item.name} <- ${item.url}`);
+  return jsonResponse({
+    success: true,
+    item,
+    total: bookmarks.length,
+    storage: storageMode(),
+  });
+}
+
+/**
  * POST /api/admin/password —— 修改管理员密码。
  * @param {Request} request
  * @returns {Promise<Response>}
@@ -1257,6 +1346,12 @@ export async function onRequest(context) {
       const deny = await requireAuth(request);
       if (deny) return deny;
       return await handleDataUpdate(request);
+    }
+
+    if (path === "/api/bookmarks" && method === "POST") {
+      const deny = await requireAuth(request);
+      if (deny) return deny;
+      return await handleAddBookmark(request);
     }
 
     if (path === "/api/admin/password" && method === "POST") {

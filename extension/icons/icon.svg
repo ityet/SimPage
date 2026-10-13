@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="simpage-gradient" x1="64" y1="32" x2="256" y2="288" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7F5AF0" />
+      <stop offset="1" stop-color="#2CB1BC" />
+    </linearGradient>
+    <linearGradient id="simpage-fold" x1="224" y1="48" x2="288" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.86" />
+      <stop offset="1" stop-color="#DDF3FF" stop-opacity="0.94" />
+    </linearGradient>
+  </defs>
+  <!-- 主体：圆角方块 -->
+  <path d="M96 48H208L256 96V224C256 259.346 227.346 288 192 288H96C60.6538 288 32 259.346 32 224V112C32 76.6538 60.6538 48 96 48Z" fill="url(#simpage-gradient)" />
+  <!-- 右上折角 -->
+  <path d="M208 48V94C208 114.539 224.461 131 245 131H288L208 48Z" fill="url(#simpage-fold)" />
+  <!-- 折角上的小播放钮（品牌点缀） -->
+  <circle cx="246" cy="104" r="16" fill="rgba(255, 255, 255, 0.92)" />
+  <path d="M241.5 97.5L253.5 104L241.5 110.5V97.5Z" fill="#2F7DDE" />
+  <!-- 「+」：横竖两根圆头粗杠，居中于主体（中心约 152,180） -->
+  <rect x="99" y="167" width="106" height="26" rx="13" fill="#FFFFFF" />
+  <rect x="139" y="127" width="26" height="106" rx="13" fill="#FFFFFF" />
+</svg>

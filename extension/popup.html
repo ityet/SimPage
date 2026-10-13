@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>添加到 SimPage</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="head">
+        <img class="brand" src="icons/icon32.png" alt="" width="24" height="24" />
+        <div class="head-text">
+          <strong>添加到 SimPage</strong>
+          <span class="site-label" id="site-label">读取中…</span>
+        </div>
+        <button type="button" class="icon-btn" id="open-options" title="设置" aria-label="设置">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm0 5.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"
+            />
+            <path
+              fill="currentColor"
+              d="M19.4 13a7.6 7.6 0 0 0 0-2l1.6-1.2a.7.7 0 0 0 .17-.9l-1.5-2.6a.7.7 0 0 0-.85-.3l-1.9.76a7.6 7.6 0 0 0-1.73-1L14.9 3.6a.7.7 0 0 0-.7-.6h-3a.7.7 0 0 0-.7.6l-.28 2.06a7.6 7.6 0 0 0-1.73 1l-1.9-.76a.7.7 0 0 0-.85.3L4.24 8.9a.7.7 0 0 0 .17.9L6 11a7.6 7.6 0 0 0 0 2l-1.6 1.2a.7.7 0 0 0-.17.9l1.5 2.6a.7.7 0 0 0 .85.3l1.9-.76c.52.42 1.1.76 1.73 1l.28 2.06a.7.7 0 0 0 .7.6h3a.7.7 0 0 0 .7-.6l.28-2.06a7.6 7.6 0 0 0 1.73-1l1.9.76a.7.7 0 0 0 .85-.3l1.5-2.6a.7.7 0 0 0-.17-.9L19.4 13ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"
+            />
+          </svg>
+        </button>
+      </header>
+
+      <!-- 未配置 -->
+      <section class="panel" id="view-unconfigured" hidden>
+        <p class="lead">还没有连接 SimPage</p>
+        <p class="muted">
+          填入站点地址与管理员密码后，点一下工具栏图标就能把当前网页存为书签。
+        </p>
+        <button type="button" class="primary" id="goto-options">去设置</button>
+      </section>
+
+      <!-- 当前页不可注入（chrome:// 等） -->
+      <section class="panel" id="view-blocked" hidden>
+        <p class="lead">这个页面无法读取</p>
+        <p class="muted" id="blocked-reason"></p>
+      </section>
+
+      <!-- 主表单 -->
+      <section class="panel" id="view-form" hidden>
+        <div class="page-card">
+          <span class="page-icon" id="page-icon" aria-hidden="true"></span>
+          <div class="page-text">
+            <div class="page-title" id="page-title">—</div>
+            <div class="page-url" id="page-url">—</div>
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="label">名称</span>
+          <input type="text" id="field-name" maxlength="60" placeholder="网页标题" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span class="label">地址</span>
+          <input type="text" id="field-url" placeholder="https://" autocomplete="off" spellcheck="false" />
+        </label>
+
+        <label class="field">
+          <span class="label">描述</span>
+          <textarea id="field-description" rows="2" maxlength="200" placeholder="可选"></textarea>
+        </label>
+
+        <label class="field">
+          <span class="label">图标</span>
+          <input type="text" id="field-icon" maxlength="2048" placeholder="emoji 或图片地址" autocomplete="off" spellcheck="false" />
+        </label>
+
+        <label class="field">
+          <span class="label">分类</span>
+          <input type="text" id="field-category" list="category-options" maxlength="24" placeholder="可选" autocomplete="off" />
+        </label>
+        <datalist id="category-options"></datalist>
+
+        <div class="inline-note">
+          <span>标题 / 描述留空时可用图标服务补全</span>
+          <button type="button" class="link-btn" id="refetch">自动补全</button>
+        </div>
+
+        <p class="status" id="status" hidden></p>
+
+        <div class="actions">
+          <button type="button" class="primary" id="save">保存到 SimPage</button>
+          <a class="link-btn" id="open-site" href="#" target="_blank" rel="noopener" hidden>打开导航页 ↗</a>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

@@ -16,6 +16,7 @@
 - **开放天气服务**：使用完全免费的 Open-Meteo API 获取天气信息，无需注册和 API Key，后台直接填写城市名称即可，可输入多个城市以空格隔开，首页间隔 5 秒滚动显示。
 - **书签分类可配置**：在后台用 `|` 分隔集中配置分类（如 `技术社区|实用工具|知识学习`）。该列表既是录入书签时的候选项（仍可临时输入未列出的分类），也决定**前台书签分组的展示顺序**；未列出的分类排在最后。未配置时自动回退为「从现有书签推导并按名称排序」的旧行为。
 - **KV 数据存储**：导航数据、管理员凭据与访客计数保存在 EdgeOne Makers KV 中，确保高性能与高可用性。
+- **浏览器扩展**：`extension/` 内置 Chrome/Edge 扩展（Manifest V3），点一下工具栏图标即可把当前网页存为书签，自动带出标题、地址与图标。详见 [`extension/README.md`](./extension/README.md)。
 - **响应式与毛玻璃视觉**：延续灰白极简风格与毛玻璃效果，在桌面与移动端均有优秀的浏览体验。
 
 ## 品牌视觉
@@ -37,6 +38,7 @@
 │   ├── data/                 # 静态数据（默认导航数据、城市列表）
 │   └── scripts/
 ├── edgeone.json              # EdgeOne Makers 项目配置
+├── extension/                # Chrome / Edge 浏览器扩展（Manifest V3，不参与站点部署）
 ├── .env.example              # 环境变量示例（KV 非环境变量，见文件内说明）
 ├── legacy/                   # 历史方案（Cloudflare Workers / Docker / Node 服务器）
 └── README.md
@@ -108,8 +110,29 @@ edgeone makers dev --name simpage --skip-env-sync
 | `PUT` | `/api/data` | 同 `/api/admin/data`（旧端点，兼容保留） | 是 |
 | `POST` | `/api/admin/password` | 修改管理员密码 | 是 |
 | `POST` | `/api/fetch-logo` | 调用 `favicon.yy.luler.top` 抓取站点图标，返回 `faviconUrl` 与站点标题/描述 | 是 |
+| `POST` | `/api/bookmarks` | 追加**单条**书签（供浏览器扩展等外部客户端使用） | 是 |
 
 鉴权方式：请求头 `Authorization: Bearer <token>`，token 由登录接口返回（32 位十六进制，有效期 12 小时）。
+
+`POST /api/bookmarks` 请求体为单条书签（字段与后台一致）：
+
+```jsonc
+{
+  "name": "开源中国",          // 必填
+  "url": "https://www.oschina.net/",  // 必填，无协议时自动补 https://
+  "description": "",          // 可选
+  "icon": "✈️",               // 可选：emoji 或图片地址
+  "category": "技术社区"        // 可选，建议取自 settings.categories
+}
+```
+
+成功返回 `{ success: true, item, total, storage }`（`item` 为落库后的完整条目，含服务端生成的 `id`）。
+
+**为什么单独开一个端点**：此时若复用 `PUT /api/admin/data`，外部客户端必须先拉全量（约 57KB）再整体覆盖写回，任何一次并发编辑都会被冲掉。本端点把写入面收敛到一条书签。
+
+按 `url` **查重**（补全协议、host/path 小写、忽略末尾斜杠与 `#`，保留 query 与端口）：命中已有条目时返回 **409** `{ success: false, duplicate: true, message, item }`，`item` 是已存在的那条，便于客户端提示「已在书签中」。
+
+> 已知限制：KV 无原子 CAS，同一瞬间的并发追加仍可能互相覆盖（个人导航页的写入频率下可接受，未引入分布式锁）。
 
 `/api/fetch-logo` 默认只返回 `faviconUrl`（响应约 200B）；若需要自包含、不依赖对方站点 `/favicon.ico` 可达的 base64 data URI，加查询参数 `?includeFavicons=1`，会额外返回筛选后的 `favicons` 映射（16/32/64/128/256 五档，整包约 55KB，256 档单档约 33KB）。
 
