@@ -107,9 +107,11 @@ edgeone makers dev --name simpage --skip-env-sync
 | `PUT` | `/api/admin/data` | 后台保存导航数据 | 是 |
 | `PUT` | `/api/data` | 同 `/api/admin/data`（旧端点，兼容保留） | 是 |
 | `POST` | `/api/admin/password` | 修改管理员密码 | 是 |
-| `GET` | `/api/fetch-logo` | 由链接提取域名并返回图标地址 | 是 |
+| `POST` | `/api/fetch-logo` | 调用 `favicon.yy.luler.top` 抓取站点图标，返回 `faviconUrl` 与站点标题/描述 | 是 |
 
 鉴权方式：请求头 `Authorization: Bearer <token>`，token 由登录接口返回（32 位十六进制，有效期 12 小时）。
+
+`/api/fetch-logo` 默认只返回 `faviconUrl`（响应约 200B）；若需要自包含、不依赖对方站点 `/favicon.ico` 可达的 base64 data URI，加查询参数 `?includeFavicons=1`，会额外返回筛选后的 `favicons` 映射（16/32/64/128/256 五档，整包约 55KB，256 档单档约 33KB）。
 
 ## KV 键位说明
 

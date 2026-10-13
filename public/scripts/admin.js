@@ -1278,6 +1278,32 @@ async function handlePasswordSubmit(event) {
   }
 }
 
+// 上游抓取回来的站点标题/描述落地到表单时的长度上限
+const FETCHED_NAME_MAX_LENGTH = 40;
+const FETCHED_DESCRIPTION_MAX_LENGTH = 160;
+
+/**
+ * 清洗上游返回的站点标题/描述。
+ *
+ * 上游偶发把整页导航链接串成一长串文字（实测 github.com 返回的 title 就是
+ * 「GitHub · Change is constant. ...DuolingoErnst and YoungFord...」这种），
+ * 这里压缩空白、剔除控制字符并按长度截断，避免脏文本整段写进 KV。
+ *
+ * @param {string} value 上游原始文本
+ * @param {number} maxLength 最大保留长度
+ * @returns {string} 清洗后的文本，无有效内容时返回空串
+ */
+function sanitiseFetchedText(value, maxLength) {
+  if (typeof value !== "string") return "";
+  const collapsed = value
+    .replace(/[\u0000-\u001F\u007F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!collapsed) return "";
+  if (collapsed.length <= maxLength) return collapsed;
+  return `${collapsed.slice(0, maxLength).trim()}…`;
+}
+
 async function handleFetchLogo() {
   if (!modalUrlInput || !modalIconInput) return;
   const fetchLogoButton = document.getElementById("fetch-logo-button");
@@ -1296,8 +1322,10 @@ async function handleFetchLogo() {
   setModalError("");
 
   try {
-    const response = await fetch(`/api/fetch-logo?targetUrl=${encodeURIComponent(targetUrl)}`, {
-      headers: buildAuthHeaders(),
+    const response = await fetch("/api/fetch-logo", {
+      method: "POST",
+      headers: buildAuthHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ url: targetUrl }),
     });
 
     if (response.status === 401) {
@@ -1305,21 +1333,31 @@ async function handleFetchLogo() {
       return;
     }
 
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
 
-    if (!response.ok || !result.success) {
-      throw new Error(result.message || "获取 Logo 失败");
+    if (!response.ok || !result.success || !result.faviconUrl) {
+      throw new Error(result.message || "获取图标失败。");
     }
 
-    if (result.logoUrl) {
-      modalIconInput.value = result.logoUrl;
-      markDirty(); // 标记为有修改
-    } else {
-      throw new Error("未能找到 Logo");
+    modalIconInput.value = result.faviconUrl;
+
+    // 名称/描述仅在用户尚未填写时补全，不覆盖已录入的内容
+    if (modalNameInput && !modalNameInput.value.trim()) {
+      const fetchedName = sanitiseFetchedText(result.title, FETCHED_NAME_MAX_LENGTH);
+      if (fetchedName) modalNameInput.value = fetchedName;
     }
+    if (modalDescriptionInput && !modalDescriptionInput.value.trim()) {
+      const fetchedDescription = sanitiseFetchedText(
+        result.description,
+        FETCHED_DESCRIPTION_MAX_LENGTH,
+      );
+      if (fetchedDescription) modalDescriptionInput.value = fetchedDescription;
+    }
+
+    markDirty(); // 标记为有修改
   } catch (error) {
-    console.error("获取 Logo 失败:", error);
-    setModalError(error.message || "获取 Logo 失败，请稍后重试。");
+    console.error("获取图标失败:", error);
+    setModalError(error.message || "获取图标失败，请稍后重试。");
   } finally {
     fetchLogoButton.disabled = false;
     fetchLogoButton.textContent = originalButtonText;

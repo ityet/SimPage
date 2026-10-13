@@ -52,6 +52,11 @@ const KV_LIST_MAX_PAGES = 2; // 会话清理时最多翻 2 页（512 个 key）
 
 const DEFAULT_ADMIN_PASSWORD = "admin123";
 
+// 上游图标抓取服务（真实抓取目标站点的 favicon + 标题 + 描述）
+const FAVICON_API_ENDPOINT = "https://favicon.yy.luler.top/api/favicon";
+const FAVICON_REQUEST_TIMEOUT_MS = 12000; // 实测单次耗时约 1s，留足余量
+const FAVICON_TARGET_MAX_LENGTH = 2048;
+
 // 默认站点配置（以 public/data/navigation.json 为准，全仓唯一来源）
 const DEFAULT_SETTINGS = Object.freeze({
   siteName: "Navs",
@@ -933,31 +938,161 @@ async function handlePasswordUpdate(request) {
 }
 
 /**
- * GET /api/fetch-logo —— 由目标链接提取域名并返回图标地址。
- * @param {Request} request
- * @returns {Response}
+ * 返回第一个非空（去空白后）字符串，其余情况返回空串。
+ * @param {...string} values
+ * @returns {string}
  */
-function handleFetchLogo(request) {
+function firstNonEmptyString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+/**
+ * 由站点地址推导传统 favicon 路径 `<origin>/favicon.ico`。
+ * 上游偶尔不返回 faviconUrl，此时用它兜底。裸域名（如 `example.com:99`）
+ * 会补上 https://，否则 URL 会把 `example.com:` 误判成协议名。
+ * @param {string} rawUrl
+ * @returns {string}
+ */
+function deriveFaviconUrl(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) return "";
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
   try {
-    const { searchParams } = new URL(request.url);
-    const targetUrl = searchParams.get("targetUrl");
-
-    if (!targetUrl || typeof targetUrl !== "string" || !targetUrl.trim()) {
-      return jsonResponse({ success: false, message: "缺少有效的 targetUrl 参数" }, 400);
-    }
-
-    // 去掉协议，再取第一个斜杠前的内容作为域名
-    let domain = targetUrl.trim().replace(/^(https?:\/\/)?/, "");
-    domain = domain.split("/")[0];
-
-    if (!domain) {
-      return jsonResponse({ success: false, message: "无法从链接中提取域名。" }, 400);
-    }
-
-    return jsonResponse({ success: true, logoUrl: `https://icon.ooo/${domain}` });
+    const { origin } = new URL(candidate);
+    return origin && origin !== "null" ? `${origin}/favicon.ico` : "";
   } catch (error) {
-    console.error("生成 Logo 链接时发生内部错误：", error);
-    return jsonResponse({ success: false, message: "生成 Logo 链接失败" }, 500);
+    return "";
+  }
+}
+
+/**
+ * 判断查询参数是否为真值开关（`1` / `true` / `yes`，大小写不敏感）。
+ * @param {Request} request
+ * @param {string} name 参数名
+ * @returns {boolean}
+ */
+function hasQueryFlag(request, name) {
+  const raw = new URL(request.url).searchParams.get(name);
+  if (!raw) return false;
+  return ["1", "true", "yes"].includes(raw.trim().toLowerCase());
+}
+
+/**
+ * 从上游 `favicons` 映射里筛出合法的尺寸项，剔除格式不符的脏值。
+ * @param {*} raw 上游原始 favicons
+ * @returns {object} 形如 `{ "16": "data:image/png;base64,..." }`
+ */
+function pickFaviconSizes(raw) {
+  if (!raw || typeof raw !== "object") return {};
+  const result = {};
+  for (const [size, value] of Object.entries(raw)) {
+    if (!/^\d{1,4}$/.test(size)) continue;
+    if (typeof value !== "string" || !value.startsWith("data:image/")) continue;
+    result[size] = value;
+  }
+  return result;
+}
+
+/**
+ * POST /api/fetch-logo —— 调用上游服务真实抓取目标站点的图标与站点信息。
+ *
+ * 上游：`POST https://favicon.yy.luler.top/api/favicon`，请求体 `{"url":"<链接或域名>"}`。
+ * 成功返回 `{ title, description, url, faviconUrl, favicons }`，其中 `favicons` 是
+ * 16/32/64/128/256 五档 base64 data URI（实测整包约 55KB，256 档单档就占 33KB）。
+ *
+ * 默认只回传前端真正用得上的字段（`faviconUrl` 原地址 + 站点标题/描述 + 归一化 `url`），
+ * 响应压到几百字节；如需自包含的 data URI 兜底（对方站点 `/favicon.ico` 可能 404），
+ * 显式加查询参数 `?includeFavicons=1` 即可取回筛选后的 `favicons` 映射。
+ *
+ * @param {Request} request 请求体形如 `{ "url": "https://example.com" }`，也接受 `example.com:99` 这类裸地址
+ * @returns {Promise<Response>}
+ */
+async function handleFetchLogo(request) {
+  const body = await request.json().catch(() => null);
+  const rawTarget = typeof body?.url === "string" ? body.url.trim() : "";
+
+  if (!rawTarget) {
+    return jsonResponse({ success: false, message: "请先填写链接地址。" }, 400);
+  }
+  if (rawTarget.length > FAVICON_TARGET_MAX_LENGTH) {
+    return jsonResponse({ success: false, message: "链接地址过长，无法解析。" }, 400);
+  }
+
+  const fetchOptions = {
+    method: "POST",
+    headers: {
+      // 上游只校验 content-type，实测 origin / referer / sec-* 等浏览器头并非必需
+      "Content-Type": "application/json",
+      Accept: "*/*",
+    },
+    body: JSON.stringify({ url: rawTarget }),
+  };
+
+  // AbortController / setTimeout 的可用性在不同 V8 运行时上不一致，
+  // 检测到才挂超时，避免"为了加超时反而把整条路由搞崩"。
+  let timeoutId;
+  if (typeof AbortController === "function" && typeof setTimeout === "function") {
+    const controller = new AbortController();
+    fetchOptions.signal = controller.signal;
+    timeoutId = setTimeout(() => controller.abort(), FAVICON_REQUEST_TIMEOUT_MS);
+  }
+
+  try {
+    const response = await fetch(FAVICON_API_ENDPOINT, fetchOptions);
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      const upstreamMessage = typeof payload?.error === "string" ? payload.error : "";
+      console.warn(`[fetch-logo] 上游返回 ${response.status}：${upstreamMessage || "(无错误信息)"}`);
+      const isClientError = response.status >= 400 && response.status < 500;
+      return jsonResponse(
+        {
+          success: false,
+          message: isClientError
+            ? "链接地址无效，请检查后重试。"
+            : "未能获取该站点的图标，请确认链接可以正常访问。",
+        },
+        isClientError ? 400 : 502,
+      );
+    }
+
+    const resolvedUrl = firstNonEmptyString(payload?.url, rawTarget);
+    const faviconUrl = firstNonEmptyString(payload?.faviconUrl) || deriveFaviconUrl(resolvedUrl);
+
+    if (!faviconUrl) {
+      return jsonResponse({ success: false, message: "未能从该站点解析出图标地址。" }, 502);
+    }
+
+    const result = {
+      success: true,
+      title: typeof payload?.title === "string" ? payload.title : "",
+      description: typeof payload?.description === "string" ? payload.description : "",
+      url: resolvedUrl,
+      faviconUrl,
+    };
+
+    // 五档 base64 整包约 55KB（256 档单档 33KB），默认不带；
+    // 显式 ?includeFavicons=1 才回传，用于不依赖对方站点 /favicon.ico 可达的兜底场景。
+    if (hasQueryFlag(request, "includeFavicons")) {
+      result.favicons = pickFaviconSizes(payload?.favicons);
+    }
+
+    return jsonResponse(result);
+  } catch (error) {
+    if (error && error.name === "AbortError") {
+      return jsonResponse({ success: false, message: "获取图标超时，请稍后重试。" }, 504);
+    }
+    console.error("调用上游图标服务失败：", error);
+    return jsonResponse({ success: false, message: "图标服务暂时不可用，请稍后重试。" }, 502);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -1014,10 +1149,10 @@ export async function onRequest(context) {
       return await handlePasswordUpdate(request);
     }
 
-    if (path === "/api/fetch-logo" && method === "GET") {
+    if (path === "/api/fetch-logo" && method === "POST") {
       const deny = await requireAuth(request);
       if (deny) return deny;
-      return handleFetchLogo(request);
+      return await handleFetchLogo(request);
     }
 
     return new Response("Not Found", { status: 404, headers: corsHeaders() });
