@@ -113,6 +113,8 @@ const state = {
 let authToken = "";
 let isDirty = false;
 let modalContext = null;
+// 拖拽排序进行中的上下文；未拖拽时为 null。存放 { type, index }。
+let draggingContext = null;
 
 function setStatus(message, variant = "neutral") {
   if (!statusBar) return;
@@ -465,6 +467,8 @@ function isLogoUrl(value) {
 }
 
 function render() {
+  // 重绘会换掉整张表，旧的拖拽上下文（行索引）随之失效，必须先复位
+  resetSortState();
   renderList("apps", appsEditor, state.apps);
   renderList("bookmarks", bookmarksEditor, state.bookmarks);
   updateCategorySuggestions();
@@ -497,6 +501,7 @@ function renderList(type, container, items) {
   columns.forEach((column) => {
     const th = document.createElement("th");
     th.scope = "col";
+    th.dataset.column = column.key;
     th.textContent = column.label;
     headerRow.appendChild(th);
   });
@@ -509,6 +514,7 @@ function renderList(type, container, items) {
     rowsFragment.appendChild(buildTableRow(type, item, index, columns));
   });
   tbody.appendChild(rowsFragment);
+  bindSortDropping(type, tbody);
   table.appendChild(tbody);
 
   scroller.appendChild(table);
@@ -537,8 +543,12 @@ function updateCategorySuggestions() {
 }
 
 function getTableColumns(type) {
+  // 首列是拖拽手柄（键盘用户可聚焦后用 ↑ ↓ 移动），无内容需要展示
+  const sortColumn = { key: "sort", label: "排序" };
+
   if (type === "bookmarks") {
     return [
+      sortColumn,
       { key: "name", label: "名称" },
       { key: "category", label: "分类" },
       { key: "description", label: "描述" },
@@ -548,6 +558,7 @@ function getTableColumns(type) {
   }
 
   return [
+    sortColumn,
     { key: "name", label: "名称" },
     { key: "description", label: "描述" },
     { key: "url", label: "链接" },
@@ -558,6 +569,8 @@ function getTableColumns(type) {
 function buildTableRow(type, item, index, columns) {
   const row = document.createElement("tr");
   row.dataset.clickable = "true";
+  // 拖拽落点要靠 dataset.index 反查行，重绘后也会随之更新
+  row.dataset.index = String(index);
   row.tabIndex = 0;
 
   columns.forEach((column) => {
@@ -565,6 +578,10 @@ function buildTableRow(type, item, index, columns) {
     cell.dataset.column = column.key;
 
     switch (column.key) {
+      case "sort": {
+        cell.appendChild(createSortHandle(type, index));
+        break;
+      }
       case "name": {
         cell.appendChild(createNameCell(type, item, index));
         break;
@@ -672,6 +689,80 @@ function createActionCell(type, index) {
   actions.appendChild(editButton);
   actions.appendChild(deleteButton);
   return actions;
+}
+
+/** 手柄图标：两列共六个圆点，纯装饰，颜色由 CSS 的 currentColor 决定。 */
+const SORT_GRIP_MARKUP =
+  '<svg viewBox="0 0 10 16" aria-hidden="true" focusable="false">' +
+  '<circle cx="2" cy="3" r="1.5"/><circle cx="8" cy="3" r="1.5"/>' +
+  '<circle cx="2" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/>' +
+  '<circle cx="2" cy="13" r="1.5"/><circle cx="8" cy="13" r="1.5"/>' +
+  "</svg>";
+
+/**
+ * 生成排序手柄：鼠标可拖动，键盘聚焦后可用 ↑ ↓ 移动（触屏与键盘的兜底通路）。
+ * @param {"apps" | "bookmarks"} type 集合类型
+ * @param {number} index 该行当前索引
+ * @returns {HTMLButtonElement}
+ */
+function createSortHandle(type, index) {
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "sort-handle";
+  handle.draggable = true;
+  handle.setAttribute(
+    "aria-label",
+    `第 ${index + 1} 项，拖动或用上下方向键调整${typeLabels[type]}顺序`,
+  );
+  handle.title = "拖动调整顺序（聚焦后也可用 ↑ ↓ 移动）";
+  handle.innerHTML = SORT_GRIP_MARKUP;
+
+  // 整行点击会打开编辑弹窗，手柄上的点击必须截断，否则一按就弹窗
+  handle.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
+  handle.addEventListener("dragstart", (event) => {
+    draggingContext = { type, index };
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      // Firefox 必须写入数据才会真正启动拖拽
+      event.dataTransfer.setData("text/plain", String(index));
+    }
+    const row = handle.closest("tr");
+    if (row) {
+      row.classList.add("is-dragging");
+    }
+    if (document.body) {
+      document.body.classList.add("is-sorting");
+    }
+  });
+
+  handle.addEventListener("dragend", () => {
+    const row = handle.closest("tr");
+    clearDropIndicators(row ? row.parentElement : null);
+    if (row) {
+      row.classList.remove("is-dragging");
+    }
+    resetSortState();
+  });
+
+  handle.addEventListener("keydown", (event) => {
+    const delta = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+    if (!delta) return;
+    event.preventDefault();
+
+    const list = state[type];
+    if (!Array.isArray(list)) return;
+    const nextIndex = index + delta;
+    if (nextIndex < 0 || nextIndex >= list.length) return;
+    if (moveCollectionItem(type, index, nextIndex)) {
+      settleReorder(type, nextIndex);
+    }
+  });
+
+  return handle;
 }
 
 function deriveFallbackIcon(name) {
@@ -850,6 +941,173 @@ function applyModalChanges(event) {
   markDirty();
   setStatus(`${typeLabels[type]}已${modalContext.isNew ? "添加" : "更新"}，记得保存。`, "neutral");
   closeEditor();
+}
+
+/**
+ * 把「落点在锚点行的上半还是下半」换算成移动后的目标索引。
+ *
+ * 不能直接把锚点索引当目标索引用：源项被摘除后，位于其后的锚点下标会前移一位。
+ * 例如 [A,B,C,D] 把 A 拖到 C 之后，锚点 C 在摘除 A 后的数组里下标从 2 变成 1，
+ * 插入位置因而应是 2 而不是 3。
+ *
+ * @param {number} fromIndex 被拖动项当前的索引
+ * @param {number} anchorIndex 落点所在行（锚点）的索引
+ * @param {boolean} insertAfter 落点在锚点行的下半部分时为 true
+ * @returns {number} 移动后该项应处的新索引
+ */
+function resolveDropIndex(fromIndex, anchorIndex, insertAfter) {
+  // 落回自身所在行：不论落在上半还是下半区都视为原地不动。
+  // 少了这一步，「拖到自己行的下半区」会被算成后移一位。
+  if (anchorIndex === fromIndex) return fromIndex;
+
+  const anchorInRemaining = anchorIndex > fromIndex ? anchorIndex - 1 : anchorIndex;
+  return insertAfter ? anchorInRemaining + 1 : anchorInRemaining;
+}
+
+/**
+ * 在集合内移动条目（原地修改 state[type]，顺序即前台展示顺序）。
+ * @param {"apps" | "bookmarks"} type 集合类型
+ * @param {number} fromIndex 原始索引
+ * @param {number} toIndex 目标索引（按「摘除源项后」的坐标系给出）
+ * @returns {boolean} 顺序是否真的发生了变化
+ */
+function moveCollectionItem(type, fromIndex, toIndex) {
+  const list = state[type];
+  if (!Array.isArray(list)) return false;
+  if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return false;
+  if (fromIndex < 0 || fromIndex >= list.length) return false;
+
+  const target = Math.min(Math.max(toIndex, 0), list.length - 1);
+  if (target === fromIndex) return false;
+
+  const [moved] = list.splice(fromIndex, 1);
+  list.splice(target, 0, moved);
+  return true;
+}
+
+/**
+ * 清掉行上的落点指示线。
+ * @param {HTMLElement | null} container 列表容器
+ */
+function clearDropIndicators(container) {
+  if (!container) return;
+  container.querySelectorAll("tr.is-drop-before, tr.is-drop-after").forEach((row) => {
+    row.classList.remove("is-drop-before", "is-drop-after");
+  });
+}
+
+/**
+ * 复位拖拽全局状态。重绘前必须调用，否则旧的索引会残留到新 DOM 上。
+ */
+function resetSortState() {
+  draggingContext = null;
+  if (document.body) {
+    document.body.classList.remove("is-sorting");
+  }
+}
+
+/**
+ * 把焦点移回指定行的手柄。重绘后 DOM 已重建，必须重新查询。
+ * @param {"apps" | "bookmarks"} type 集合类型
+ * @param {number} index 目标行索引
+ */
+function focusSortHandle(type, index) {
+  const container = type === "bookmarks" ? bookmarksEditor : appsEditor;
+  if (!container) return;
+  const handle = container.querySelector(`tr[data-index="${index}"] .sort-handle`);
+  if (!handle || typeof handle.focus !== "function") return;
+  handle.focus({ preventScroll: true });
+  if (typeof handle.scrollIntoView === "function") {
+    handle.scrollIntoView({ block: "nearest" });
+  }
+}
+
+/**
+ * 键盘重排后的收尾：重绘列表、标记待保存、把焦点交还给移动后的那一行。
+ * @param {"apps" | "bookmarks"} type 集合类型
+ * @param {number} index 移动后该项的新索引
+ */
+function settleReorder(type, index) {
+  render();
+  markDirty();
+  setStatus(`${typeLabels[type]}顺序已调整，记得保存修改。`, "neutral");
+  focusSortHandle(type, index);
+}
+
+/**
+ * 在表格体上委托拖拽落点事件。
+ *
+ * 用事件委托而非逐行绑定，是因为每次重绘都会重建全部行，逐行绑定会随之失效。
+ *
+ * @param {"apps" | "bookmarks"} type 集合类型
+ * @param {HTMLTableSectionElement} tbody 列表的 tbody
+ */
+function bindSortDropping(type, tbody) {
+  const resolveAnchorRow = (target) => {
+    if (!target || typeof target.closest !== "function") return null;
+    const row = target.closest("tr");
+    return row && tbody.contains(row) ? row : null;
+  };
+
+  const isDraggingThisList = () => Boolean(draggingContext) && draggingContext.type === type;
+
+  /** 以锚点行的垂直中点为界，判断落点属于上半还是下半。 */
+  const insertAfterPoint = (row, clientY) => {
+    const rect = row.getBoundingClientRect();
+    return clientY > rect.top + rect.height / 2;
+  };
+
+  tbody.addEventListener("dragover", (event) => {
+    if (!isDraggingThisList()) return;
+    // 不 preventDefault 浏览器就不允许放置，后面的 drop 也不会触发
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = "move";
+    }
+
+    const row = resolveAnchorRow(event.target);
+    clearDropIndicators(tbody);
+    if (!row) return;
+
+    const anchorIndex = Number(row.dataset.index);
+    if (!Number.isInteger(anchorIndex)) return;
+    // 拖回自己所在行时不画指示线，避免给出「会移动」的错觉
+    if (anchorIndex === draggingContext.index) return;
+
+    row.classList.add(insertAfterPoint(row, event.clientY) ? "is-drop-after" : "is-drop-before");
+  });
+
+  tbody.addEventListener("dragleave", (event) => {
+    if (!tbody.contains(event.relatedTarget)) {
+      clearDropIndicators(tbody);
+    }
+  });
+
+  tbody.addEventListener("drop", (event) => {
+    if (!isDraggingThisList()) return;
+    event.preventDefault();
+
+    const fromIndex = draggingContext.index;
+    const row = resolveAnchorRow(event.target);
+    const anchorIndex = row ? Number(row.dataset.index) : Number.NaN;
+
+    clearDropIndicators(tbody);
+    resetSortState();
+
+    if (!row || !Number.isInteger(anchorIndex)) return;
+    // 落回自己所在的行：无论上下半区都视为原地不动，
+    // 否则「拖到自己下半部分」会被算成后移一位。
+    if (anchorIndex === fromIndex) return;
+
+    const insertAfter = insertAfterPoint(row, event.clientY);
+    const toIndex = resolveDropIndex(fromIndex, anchorIndex, insertAfter);
+
+    if (moveCollectionItem(type, fromIndex, toIndex)) {
+      render();
+      markDirty();
+      setStatus(`${typeLabels[type]}顺序已调整，记得保存修改。`, "neutral");
+    }
+  });
 }
 
 function handleDelete(type, index) {

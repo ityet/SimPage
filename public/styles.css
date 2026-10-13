@@ -304,6 +304,28 @@ body.dark-theme .admin-table td[data-column="url"] {
   color: var(--text-secondary);
 }
 
+body.dark-theme .sort-handle {
+  color: rgba(247, 250, 252, 0.32);
+}
+
+body.dark-theme .sort-handle:hover {
+  color: rgba(247, 250, 252, 0.72);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+body.dark-theme .sort-handle:focus-visible {
+  color: #60a5fa;
+  outline-color: rgba(96, 165, 250, 0.55);
+}
+
+body.dark-theme .admin-table tbody tr.is-drop-before > td {
+  box-shadow: inset 0 2px 0 0 rgba(96, 165, 250, 0.85);
+}
+
+body.dark-theme .admin-table tbody tr.is-drop-after > td {
+  box-shadow: inset 0 -2px 0 0 rgba(96, 165, 250, 0.85);
+}
+
 body.dark-theme .admin-item-icon {
   background: #3A3A3C;
 }
@@ -1305,6 +1327,72 @@ body.dark-theme .theme-toggle:focus-visible {
   font-size: 0.85rem;
   color: rgba(31, 41, 55, 0.68);
   word-break: break-all;
+}
+
+.admin-table th[data-column="sort"],
+.admin-table td[data-column="sort"] {
+  width: 1%;
+  padding-left: 0.85rem;
+  padding-right: 0.35rem;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.sort-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(31, 41, 55, 0.3);
+  cursor: grab;
+  /* 移动端拖手柄时不要顺带滚动页面 */
+  touch-action: none;
+  transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease;
+}
+
+.sort-handle svg {
+  width: 0.7rem;
+  height: 1.15rem;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.sort-handle:hover {
+  color: rgba(31, 41, 55, 0.62);
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.sort-handle:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.45);
+  outline-offset: 1px;
+  color: #2563eb;
+}
+
+.sort-handle:active {
+  cursor: grabbing;
+}
+
+/* 行被拖动中：淡出，表示这一项正在被移动 */
+.admin-table tbody tr.is-dragging > td {
+  opacity: 0.45;
+}
+
+/* 指示落点。表格用 border-collapse，行上的 box-shadow 不可靠，故画在单元格上 */
+.admin-table tbody tr.is-drop-before > td {
+  box-shadow: inset 0 2px 0 0 rgba(59, 130, 246, 0.75);
+}
+
+.admin-table tbody tr.is-drop-after > td {
+  box-shadow: inset 0 -2px 0 0 rgba(59, 130, 246, 0.75);
+}
+
+body.is-sorting {
+  cursor: grabbing;
 }
 
 .admin-table td[data-column="actions"] {
