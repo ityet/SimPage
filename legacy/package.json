@@ -1,15 +1,13 @@
 {
-  "name": "simpage-worker",
+  "name": "simpage-legacy",
   "version": "1.1.0",
-  "description": "现代化导航页，由 Cloudflare Workers 驱动",
+  "description": "SimPage 历史部署方案依赖（Cloudflare Workers + Node.js 服务器），仅作回溯参考，非 EdgeOne Makers 主线",
   "private": true,
   "scripts": {
     "start": "node server.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
-  "author": "",
-  "license": "MIT",
   "dependencies": {
     "@cloudflare/kv-asset-handler": "^0.3.0",
     "itty-router": "^4.0.23",

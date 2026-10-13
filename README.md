@@ -4,18 +4,18 @@
 
 # SimPage · 现代化导航页
 
-一个集成时间问候、天气信息、智能搜索，以及应用与书签快捷入口的现代化导航页示例。项目已适配 **Cloudflare Workers**，通过 KV 存储实现数据持久化，提供后台编辑页面，便于轻量快速地部署和管理。
+一个集成时间问候、天气信息、智能搜索，以及应用与书签快捷入口的现代化导航页示例。项目基于 **EdgeOne Makers** 构建：静态资源 + Edge Functions（V8 运行时）+ KV 存储，提供后台编辑页面，便于轻量快速地部署与管理。
 
 ## 功能特性
 
 - **概览区域**：展示当前时间、日期、问候语及实时天气信息，并提供全局搜索入口，支持亮暗主题切换并可随系统主题自动切换。
 - **应用与书签分区**：两大模块采用自适应 4-5 列网格排布，支持自由缩放，卡片包含图标、名称与描述信息。
 - **后台编辑页面**：无需额外数据库，通过后台页面即可新增、修改或删除应用与书签条目。
-- **后台权限控制**：后台页面需密码登录（默认密码 `admin123`），密码信息保存在本地数据文件中，便于自定义。
+- **后台权限控制**：后台页面需密码登录（默认密码 `admin123`），密码以 PBKDF2 哈希形式存储，可随时在后台修改。
 - **站点信息配置**：可在后台设置网站名称、Logo 以及概览区域下方的自定义问候语，前台实时同步展示。
-- **开放天气服务**：使用完全免费的 Open-Meteo API 获取天气信息，无需注册和 API Key，后台直接填写城市名称即可，可输入多个城市以空格隔开，首页间隔5秒滚动显示。
+- **开放天气服务**：使用完全免费的 Open-Meteo API 获取天气信息，无需注册和 API Key，后台直接填写城市名称即可，可输入多个城市以空格隔开，首页间隔 5 秒滚动显示。
 - **书签分类提示**：录入书签时自动列出现有子分类，快速保持分类一致性。
-- **KV 数据存储**：导航数据保存在 Cloudflare KV 中，确保高性能与高可用性。
+- **KV 数据存储**：导航数据、管理员凭据与访客计数保存在 EdgeOne Makers KV 中，确保高性能与高可用性。
 - **响应式与毛玻璃视觉**：延续灰白极简风格与毛玻璃效果，在桌面与移动端均有优秀的浏览体验。
 
 ## 品牌视觉
@@ -23,197 +23,111 @@
 - 仓库内提供了 `public/simpage-logo.svg` 作为轻量级的 SimPage 品牌 Logo，顶部展示的图标即来源于该文件。
 - 部署时可直接复用该 Logo，或在此基础上调整配色与排版以匹配自有品牌。
 
-## 传统 Node.js 部署
-
-如果您仍希望使用传统的 Node.js 服务器模式，可以继续使用 `server.js`。
-
-### 1. 安装依赖
-
-```bash
-npm install
-```
-### 2. 启动服务
-
-```bash
-# 启动 Node.js 服务器
-npm start
-```
-### 3. 后台运行[推荐使用 PM2]
-
-1. 全局安装 PM2
-
-```bash
-npm install pm2 -g
-```
-2. 使用 PM2 启动你的应用
-
-```bash
-pm2 start npm --name "SimPage" -- start
-```
-
-3. 常用 PM2 命令
-
-```bash
-pm2 list          # 查看所有正在运行的应用
-pm2 status        # 查看所有应用的状态 (和 list 类似)
-pm2 logs my-app   # 查看 "my-app" 的实时日志
-pm2 stop my-app     # 停止 "my-app"
-pm2 restart my-app  # 重启 "my-app"
-pm2 delete my-app   # 从 PM2 列表中删除 "my-app"
-```
-
-4. 设置开机自启
-
-```bash
-pm2 startup
-# (它会生成类似 sudo env PATH=... 的命令，复制并执行它)
-
-# 保存当前的应用列表，以便在重启后恢复
-pm2 save
-```
-
-> 请注意，`server.js` 和 Cloudflare Worker (`worker.js`) 使用不同的数据存储方式（文件 vs KV），数据不互通。
-
-
-## Cloudflare Workers 部署
-
-本项目已完全适配 Cloudflare Workers，推荐使用此方式进行部署。
-
-### 1. 环境准备
-
-- 一个 [Cloudflare](https://www.cloudflare.com/) 账户。
-- 已安装 [Node.js](https://nodejs.org/) 和 npm。
-
-### 2. 安装依赖
-
-```bash
-npm install
-```
-
-### 3. 配置 Wrangler
-
-1.  **登录 Wrangler**:
-    ```bash
-    npx wrangler login
-    ```
-    这将引导您在浏览器中登录 Cloudflare 账户并授权 Wrangler。
-
-2.  **创建 KV 命名空间**:
-    您需要创建两个 KV 命名空间来存储应用数据和用户会话。
-    ```bash
-    npx wrangler kv:namespace create "SIMPAGE_DATA"
-    npx wrangler kv:namespace create "SESSIONS"
-    ```
-    执行上述命令后，Wrangler 会输出每个命名空间的 `id`。静态网站内容将通过下文的 `[site]` 配置自动处理，无需手动创建对应的 KV。
-
-3.  **更新 `wrangler.toml`**:
-    将上一步获取到的 `id` 填入 `wrangler.toml` 文件对应的 `kv_namespaces` 部分。`preview_id` 可留空或填写与 `id` 相同的值。
-
-    ```toml
-    # wrangler.toml
-
-    kv_namespaces = [
-      { binding = "SIMPAGE_DATA", id = "your_simpage_data_id", preview_id = "your_simpage_data_id" },
-      { binding = "SESSIONS", id = "your_sessions_id", preview_id = "your_sessions_id" }
-    ]
-
-    # ... 其他配置
-    [site]
-    bucket = "./public"
-    ```
-
-### 4. 本地开发
-
-使用 `dev` 命令启动本地开发服务器，它会模拟 Cloudflare 环境，并支持热重载。
-
-```bash
-npm run dev
-```
-
-- 前台导航页：[`http://localhost:8787/`](http://localhost:8787/)
-- 后台编辑页：[`http://localhost:8787/admin`](http://localhost:8787/admin)
-
-> 后台首次登录请使用默认密码 `admin123`。
-
-### 5. 部署到 Cloudflare
-
-```bash
-npm run deploy
-```
-
-部署成功后，Wrangler 会输出您的 Worker URL，通过该 URL 即可访问您的导航页。
-
-### 5. 更新
-
-```bash
-git pull
-npm run deploy
-```
-
-## Docker Compose 部署
-
-项目附带精简的 Docker 部署方案，镜像基于 `node:20-alpine` 构建，仅安装生产依赖并启用健康检查，以在保证性能的前提下降低资源占用。
-
-1. 手动构建镜像：
-   ```bash
-   docker compose build
-   ```
-   如需强制刷新依赖，可追加 `--no-cache`。
-
-2. 后台启动服务：
-   ```bash
-   docker compose up -d
-   ```
-   若仍使用旧版 `docker-compose`，可替换为 `docker-compose up -d`。
-
-3. 查看运行日志：
-   ```bash
-   docker compose logs -f navigation
-   ```
-
-4. 停止容器（保留数据）：
-   ```bash
-   docker compose down
-   ```
-5. 更新
-   ```bash
-   git pull
-   ```
-重新构建镜像 -> docker-compose up -d
-
-以上命令同样适用于旧版 `docker-compose` CLI，只需将 `docker compose` 替换为 `docker-compose`。
-
-部署配置要点：
-
-- 服务默认监听宿主机 `3000` 端口，可在 `docker-compose.yml` 中调整端口映射或 `PORT` 环境变量。
-- 命名卷 `navigation_data` 会持久化 `/app/data` 下的导航配置与后台密码，镜像重建时数据不会丢失。
-- 可通过 `DEFAULT_WEATHER_CITY` 环境变量自定义默认天气城市，默认值为"北京"，Docker Compose 示例已默认填充，可按需修改。
-- 天气服务使用 Open-Meteo 开源免费 API，无需配置 API Key。
-- `docker-compose.yml` 中预设 `mem_limit`、`mem_reservation` 与 `cpus`，默认限制为 0.5 核、512MiB 上限及 128MiB 预留，可按实际资源情况调整。
-- 更新代码后重新运行 `docker compose build` 与 `docker compose up -d` 以应用最新版本。
-
-## 运行时配置
-
-- `DEFAULT_WEATHER_CITY`：默认天气城市的名称（后台未选择城市时使用），默认值 `北京`
-
-## 数据管理
-
-- 导航数据、会话和静态资源均存储在 Cloudflare KV 中。
-- 首次部署后，Worker 会自动使用默认数据初始化 `SIMPAGE_DATA` KV。
-- 所有数据（包括后台密码）均可通过后台页面进行管理和修改。
-
 ## 目录结构
 
 ```
-├── public/                  # 静态资源目录
-│   ├── admin.html           # 后台编辑页面
-│   ├── index.html           # 前台导航页面
-│   ├── scripts/
-│   └── styles.css
-├── worker.js                # Cloudflare Worker 入口脚本
-├── wrangler.toml            # Wrangler 配置文件
-├── package.json             # 项目依赖与脚本
+├── edge-functions/
+│   └── api/
+│       └── [[default]].js    # Edge Function（V8）：托管 /api/* 全部接口
+├── public/                   # 静态资源目录（构建输出根目录）
+│   ├── index.html            # 前台导航页
+│   ├── admin.html            # 后台编辑页（经 /admin 重写访问）
+│   ├── styles.css
+│   ├── simpage-logo.svg
+│   ├── data/                 # 静态数据（默认导航数据、城市列表）
+│   └── scripts/
+├── edgeone.json              # EdgeOne Makers 项目配置
+├── .env.example              # 环境变量示例（KV 非环境变量，见文件内说明）
+├── legacy/                   # 历史方案（Cloudflare Workers / Docker / Node 服务器）
 └── README.md
 ```
 
-祝使用愉快！
+## 快速开始（EdgeOne Makers · 推荐）
+
+### 1. 安装 EdgeOne CLI
+
+```bash
+npm install -g edgeone
+```
+
+### 2. 配置 KV 命名空间（控制台三步）
+
+Edge Functions 的数据持久化依赖 **KV Storage**。请在 EdgeOne Makers 控制台完成：
+
+1. **启用 KV**：进入「存储 → KV」，为账号启用 KV Storage（若尚未启用）。
+2. **创建命名空间**：新建一个命名空间，例如 `simpage-kv`。
+3. **绑定到项目**：在项目 `simpage` 的绑定设置里，将该命名空间绑定为变量，**「变量名」必须填 `KV`**。
+
+> 说明：绑定后，代码中以**全局变量 `KV`** 直接访问（`KV.get` / `KV.put` / `KV.delete` / `KV.list`），它**不在** `context.env` 上。
+> 切勿把命名空间名当成环境变量字符串（如 `SIMPAGE_DATA: "simpage-kv"`）——那只是字符串，不会变成可用的 KV 句柄。
+> 未绑定或本地未 link 时，函数会**优雅降级**到进程内内存兜底：接口仍返回 `200`，响应中的 `storage` 字段会显示 `memory-fallback`（长期运行请务必绑定 KV）。
+
+### 3. 本地开发
+
+```bash
+edgeone makers dev --name simpage --skip-env-sync
+```
+
+- 前台导航页：`http://127.0.0.1:8088/`
+- 后台编辑页：`http://127.0.0.1:8088/admin.html`
+
+> 后台首次登录请使用默认密码 `admin123`。
+> 本地开发请使用 `/admin.html`；`/admin` 短链在本地会返回 404（原因见下节「路由与访问路径说明」）。
+
+### 4. 部署
+
+通过 EdgeOne Makers 控制台或 CLI 部署本项目。静态资源由 `public/` 提供，Edge Function 由平台按 `/api/*` 自动挂载，无需额外路由配置。
+
+## 路由与访问路径说明（重要）
+
+后台编辑页存在两个地址，行为不同，请务必区分：
+
+| 地址 | 依赖机制 | 本地（`edgeone makers dev`） | 线上 |
+|------|----------|------------------------------|------|
+| `/admin.html` | 静态文件，无路由依赖 | ✅ 可访问 | ✅ 可访问 |
+| `/admin` | `edgeone.json` 的 rewrite 规则（`/admin` → `/admin.html`） | ❌ 返回 404 | ✅ 生效 |
+
+- **后台编辑页的直接可用地址是 `/admin.html`**，本地与线上都已确认可访问，后台功能不受影响。
+- **`/admin` 短链依赖 `edgeone.json` 中的 rewrite 规则**（`{ "source": "/admin", "destination": "/admin.html" }`，沿用项目既有做法）。该规则**在线上生效**，但 `edgeone makers dev` 本地开发服务器**不应用 rewrites**（实测：放入探针 rewrite 后对应路径均返回 404，与 destination 写法无关），因此**本地访问 `/admin` 会返回 404 —— 这是预期行为，不是 bug**。本地调试请使用 `/admin.html`；`/admin` 只能等部署后在线上确认。
+
+> 以下三条替代方案均已实测并**排除**，记录于此以免后人重复踩坑：
+>
+> 1. **`middleware.js` 透明重写（已移除）**：EdgeOne Makers Middleware 可被 dev server 加载（日志 `✅ Middleware loaded successfully`），但 CLI（1.6.17-beta.1 与 1.6.41 均复现）的 dev middleware 执行器存在缺陷，**每个请求**都会抛出 `TypeError: Cannot read properties of undefined (reading 'fetch')`（`at ... executeMiddleware`）。dev 下该异常被吞掉但日志被刷屏，且该异常位于执行器内部、`/api/*` 也在其执行路径上，**存在线上把整站打成 500 的风险**，风险收益不成立，故弃用。
+> 2. **静态目录索引（`public/admin/index.html`）**：dev server 会把目录路径当文件读取，访问时抛 `EISDIR: illegal operation on a directory, read` 并**导致进程崩溃**，不可用。
+> 3. **依赖 dev server 验证 rewrite**：如上，dev server 不应用 `edgeone.json` 的 rewrites，此路不通。
+
+## API 一览
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|------|------|------|------|
+| `POST` | `/api/login` | 校验密码并签发会话 token | 否 |
+| `GET` | `/api/data` | 前台读取导航数据（并递增访客计数） | 否 |
+| `GET` | `/api/weather` | 按配置城市查询天气（Open-Meteo） | 否 |
+| `GET` | `/api/admin/data` | 后台读取完整数据 | 是 |
+| `PUT` | `/api/admin/data` | 后台保存导航数据 | 是 |
+| `PUT` | `/api/data` | 同 `/api/admin/data`（旧端点，兼容保留） | 是 |
+| `POST` | `/api/admin/password` | 修改管理员密码 | 是 |
+| `GET` | `/api/fetch-logo` | 由链接提取域名并返回图标地址 | 是 |
+
+鉴权方式：请求头 `Authorization: Bearer <token>`，token 由登录接口返回（32 位十六进制，有效期 12 小时）。
+
+## KV 键位说明
+
+| Key | 内容 | 说明 |
+|-----|------|------|
+| `data_navigation` | `{ settings, apps, bookmarks }` | 导航数据主体 |
+| `data_admin` | `{ passwordHash, passwordSalt, iterations }` | 管理员凭据，与导航数据分键存储 |
+| `stats_visitor_count` | 数字字符串 | 访客计数 |
+| `session_<tokenHex>` | `{ expires, value }` | 会话，一会话一键；登录时顺带清理过期会话 |
+
+> KV 键只允许字母、数字与下划线；KV **无 TTL**，会话过期由 `expires` 字段自行判定与清理。
+
+## 数据管理
+
+- 首次运行时，若 KV 为空，函数会自动写入内置默认导航数据与默认管理员密码（`admin123`）。
+- 所有数据（导航内容、后台密码）均可通过后台页面管理与修改。
+- 默认站点配置以 `public/data/navigation.json` 为准（`siteName: Navs`、`siteLogo: 🎐`、默认城市 `杭州`）。
+
+## 历史方案
+
+Cloudflare Workers（`worker.js` / `wrangler.toml`）、Node.js 服务器（`server.js`）、Docker（`Dockerfile` / `docker-compose.yml`）等早期部署方式已归档到 `legacy/`，仅作回溯参考，不再是推荐路径。

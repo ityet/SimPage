@@ -214,34 +214,12 @@ function updateGreetingDisplay(hour = new Date().getHours()) {
 
 async function loadData() {
   try {
-    // 尝试从代理API获取外部数据，如果失败则使用本地API
-    let data;
-    let useExternal = false;
-    
-    try {
-      console.log("尝试从外部获取数据...");
-      const proxyResponse = await fetch("/api/proxy/navigation");
-      if (proxyResponse.ok) {
-        const proxyResult = await proxyResponse.json();
-        if (proxyResult.success) {
-          data = proxyResult.data;
-          useExternal = true;
-          console.log("成功从外部获取数据");
-        }
-      }
-    } catch (proxyError) {
-      console.log("代理获取失败，尝试本地数据:", proxyError.message);
+    // 直接调用后端数据接口
+    const response = await fetch("/api/data");
+    if (!response.ok) {
+      throw new Error("数据拉取失败");
     }
-    
-    // 如果代理失败，使用本地API
-    if (!data) {
-      console.log("使用本地API获取数据");
-      const localResponse = await fetch("/api/data");
-      if (!localResponse.ok) {
-        throw new Error("本地数据拉取失败");
-      }
-      data = await localResponse.json();
-    }
+    const data = await response.json();
 
     applySiteSettings(data?.settings);
     updateVisitorCount(data?.visitorCount);
@@ -252,14 +230,6 @@ async function loadData() {
     renderApps(originalData.apps);
     renderBookmarks(originalData.bookmarks);
     hideLocalSearchFeedback();
-    
-    // 显示数据来源状态（可选）
-    if (useExternal) {
-      console.log("✅ 数据来源于外部服务器");
-    } else {
-      console.log("📦 数据来源于本地配置");
-    }
-    
   } catch (error) {
     console.error("加载数据失败", error);
     renderApps([], { emptyMessage: "加载应用数据失败，请稍后重试。" });

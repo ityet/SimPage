@@ -12,3 +12,18 @@ dist/
 .idea/
 .vscode/
 .codebuddy/
+.workbuddy/
+.idea/
+
+# Environment variables and secrets（凭证不入库，配置入库）
+.env
+
+# EdgeOne Makers 本地状态、凭证与构建产物
+# 说明：项目配置是根目录的 edgeone.json；.edgeone/ 内全部为本地生成物
+# （auth.json 凭证 / project.json link 状态 / meta.json / assets / 各运行时编译产物），
+# 整体忽略并面向未来（新增运行时目录无需再改本文件）。
+.edgeone/
+
+# 历史本地运行日志与 Cloudflare Wrangler 本地状态
+server.log
+.wrangler/
