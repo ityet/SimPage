@@ -77,9 +77,15 @@ const DEFAULT_SETTINGS = Object.freeze({
   greeting: "",
   footer: "** LeoNavs ** 不断学习，不断尝试，不断进步！！",
   weather: Object.freeze({ city: "杭州" }),
+  // 书签分类：决定后台编辑时的候选列表，以及前台书签分组的展示顺序
+  categories: Object.freeze(["技术社区", "实用工具", "知识学习"]),
 });
 const DEFAULT_WEATHER_CITY = DEFAULT_SETTINGS.weather.city;
 const DEFAULT_STATS = Object.freeze({ visitorCount: 0 });
+
+// 单个分类名的长度上限与分类数量上限（防止异常入参撑爆存储与前台渲染）
+const CATEGORY_MAX_LENGTH = 24;
+const CATEGORY_MAX_COUNT = 30;
 
 // 默认应用列表（来自 public/data/navigation.json）
 const DEFAULT_APPS = Object.freeze([
@@ -1309,6 +1315,7 @@ function sanitiseData(fullData) {
       greeting: sourceSettings.greeting || defaults.greeting,
       footer: normaliseFooterValue(sourceSettings.footer),
       weather: { city: weather.city },
+      categories: resolveCategories(sourceSettings.categories),
     },
     apps: fullData.apps?.map((item) => ({ ...item })) || [],
     bookmarks: fullData.bookmarks?.map((item) => ({ ...item })) || [],
@@ -1336,6 +1343,7 @@ function normaliseSettingsInput(input) {
     greeting: typeof input?.greeting === "string" ? input.greeting.trim() : "",
     footer: normaliseFooterValue(input?.footer),
     weather: normaliseWeatherSettingsInput(input?.weather),
+    categories: normaliseCategoriesInput(input?.categories),
   };
 }
 
@@ -1454,6 +1462,7 @@ function createDefaultSettings() {
     greeting: DEFAULT_SETTINGS.greeting,
     footer: DEFAULT_SETTINGS.footer,
     weather: createDefaultWeatherSettings(),
+    categories: [...DEFAULT_SETTINGS.categories],
   };
 }
 
@@ -1463,6 +1472,53 @@ function createDefaultSettings() {
  */
 function createDefaultWeatherSettings() {
   return { city: [DEFAULT_WEATHER_CITY] };
+}
+
+/**
+ * 规范化书签分类列表。
+ *
+ * 接受数组或 `|` 分隔的字符串（兼容全角竖线、逗号、换行），统一 trim、
+ * 丢弃空值与超长项、按大小写不敏感去重并保留首次出现的原形，最后截断数量。
+ *
+ * @param {*} raw 原始值，可为数组、字符串或其它类型
+ * @returns {string[]} 规范化后的分类列表
+ */
+function normaliseCategoriesInput(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+    ? raw.split(/[|｜,，\n\r]+/)
+    : [];
+
+  const seen = new Set();
+  const result = [];
+  for (const entry of list) {
+    if (typeof entry !== "string") continue;
+    const label = entry.trim();
+    if (!label || label.length > CATEGORY_MAX_LENGTH) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(label);
+    if (result.length >= CATEGORY_MAX_COUNT) break;
+  }
+  return result;
+}
+
+/**
+ * 解析出用于展示的分类列表。
+ *
+ * 与规范化的区别在于对「字段缺失」的处理：null/undefined 视为「从未配置」，
+ * 回退到默认分类；而显式的空数组表示管理员主动清空，予以尊重。
+ *
+ * @param {*} raw 原始值
+ * @returns {string[]} 分类列表
+ */
+function resolveCategories(raw) {
+  if (raw === undefined || raw === null) {
+    return [...DEFAULT_SETTINGS.categories];
+  }
+  return normaliseCategoriesInput(raw);
 }
 
 /**

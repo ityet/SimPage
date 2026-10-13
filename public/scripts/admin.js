@@ -37,6 +37,7 @@ const siteFooterInput = document.getElementById("site-footer-content");
 const siteFooterPreview = document.getElementById("site-footer-preview");
 const siteWeatherCityInput = document.getElementById("site-weather-city");
 const siteWeatherSummary = document.getElementById("site-weather-summary");
+const siteCategoriesInput = document.getElementById("site-categories");
 const categorySuggestions = document.getElementById("category-suggestions");
 const authOverlay = document.getElementById("auth-overlay");
 const loginForm = document.getElementById("login-form");
@@ -90,12 +91,17 @@ const DEFAULT_WEATHER_SETTINGS = {
   city: "北京",
 };
 
+// 单个分类名的长度上限与分类数量上限；与后端 CATEGORY_MAX_* 保持一致
+const CATEGORY_MAX_LENGTH = 24;
+const CATEGORY_MAX_COUNT = 30;
+
 const defaultSettings = {
   siteName: siteNameInput && siteNameInput.value.trim() ? siteNameInput.value.trim() : "SimPage",
   siteLogo: siteLogoInput && siteLogoInput.value.trim() ? siteLogoInput.value.trim() : "",
   greeting: siteGreetingInput && siteGreetingInput.value.trim() ? siteGreetingInput.value.trim() : "",
   footer: siteFooterInput && siteFooterInput.value ? normaliseFooterValue(siteFooterInput.value) : "",
   weather: createDefaultWeatherSettings(),
+  categories: [],
 };
 
 const state = {
@@ -107,6 +113,7 @@ const state = {
     greeting: defaultSettings.greeting,
     footer: defaultSettings.footer,
     weather: { ...defaultSettings.weather },
+    categories: [...defaultSettings.categories],
   },
 };
 
@@ -182,6 +189,7 @@ function normaliseSettingsIncoming(input) {
     greeting: defaultSettings.greeting,
     footer: defaultSettings.footer,
     weather: { ...defaultSettings.weather },
+    categories: [...defaultSettings.categories],
   };
 
   if (!input || typeof input !== "object") {
@@ -209,6 +217,8 @@ function normaliseSettingsIncoming(input) {
     prepared.weather = normaliseWeatherSettingsIncoming(null);
   }
 
+  prepared.categories = parseCategoryList(input.categories);
+
   return prepared;
 }
 
@@ -216,6 +226,50 @@ function createDefaultWeatherSettings() {
   return {
     city: DEFAULT_WEATHER_SETTINGS.city,
   };
+}
+
+/**
+ * 解析分类列表，规则与后端 normaliseCategoriesInput 保持一致。
+ *
+ * 接受数组或 `|` 分隔的字符串（兼容全角竖线、逗号、换行），统一 trim、
+ * 丢弃空值与超长项、按大小写不敏感去重并保留首次出现的原形，最后截断数量。
+ *
+ * @param {*} raw 原始值，可为数组、字符串或其它类型
+ * @returns {string[]} 规范化后的分类列表
+ */
+function parseCategoryList(raw) {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+    ? raw.split(/[|｜,，\n\r]+/)
+    : [];
+
+  const seen = new Set();
+  const result = [];
+  list.forEach((entry) => {
+    if (typeof entry !== "string") return;
+    const label = entry.trim();
+    if (!label || label.length > CATEGORY_MAX_LENGTH) return;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+    if (result.length >= CATEGORY_MAX_COUNT) return;
+    seen.add(key);
+    result.push(label);
+  });
+  return result;
+}
+
+/**
+ * 把分类列表渲染成输入框里的文本（`|` 分隔）。
+ * @param {string[]} list
+ * @returns {string}
+ */
+function formatCategoriesText(list) {
+  if (!Array.isArray(list)) return "";
+  return list
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean)
+    .join("|");
 }
 
 function normaliseWeatherSettingsIncoming(raw) {
@@ -331,6 +385,13 @@ function applySettingsToInputs(settings) {
   }
 
   updateWeatherSummary(normalisedWeather);
+
+  state.settings.categories = parseCategoryList(settings.categories);
+  if (siteCategoriesInput) {
+    siteCategoriesInput.value = formatCategoriesText(state.settings.categories);
+  }
+  updateCategorySuggestions();
+
   updatePageIdentity(settings);
 }
 
@@ -340,8 +401,14 @@ function handleSettingsChange(field, value) {
   if (field === "footer") {
     nextValue = normaliseFooterValue(value);
     updateFooterPreview(nextValue);
+  } else if (field === "categories") {
+    nextValue = parseCategoryList(value);
   }
   state.settings[field] = nextValue;
+  // 必须在写入 state 之后再刷新候选，否则读到的仍是上一次的分类
+  if (field === "categories") {
+    updateCategorySuggestions();
+  }
   updatePageIdentity(state.settings);
   markDirty();
   setStatus("站点信息已更新，记得保存。", "neutral");
@@ -522,23 +589,37 @@ function renderList(type, container, items) {
   replaceChildrenSafe(container, wrapper);
 }
 
+/**
+ * 刷新分类候选（datalist）。
+ *
+ * 优先使用「站点信息」里配置的分类，并保持配置的先后顺序；数据里已存在、
+ * 但配置未覆盖的分类追加在后，避免历史数据在候选里消失。若完全没有配置
+ * （老数据或管理员主动清空），则回退为改动前的行为：全部取自现有书签并按名称排序。
+ */
 function updateCategorySuggestions() {
   if (!categorySuggestions) return;
-  const categories = new Set();
+
+  const configured = parseCategoryList(state.settings?.categories);
+  const seen = new Set(configured.map((label) => label.toLowerCase()));
+  const extras = [];
+
   state.bookmarks.forEach((item) => {
     const label = typeof item.category === "string" ? item.category.trim() : "";
-    if (label) {
-      categories.add(label);
-    }
+    if (!label) return;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    extras.push(label);
   });
+
+  const tail = configured.length ? extras : extras.sort((a, b) => a.localeCompare(b, "zh-CN"));
+
   const fragment = document.createDocumentFragment();
-  Array.from(categories)
-    .sort((a, b) => a.localeCompare(b, "zh-CN"))
-    .forEach((label) => {
-      const option = document.createElement("option");
-      option.value = label;
-      fragment.appendChild(option);
-    });
+  [...configured, ...tail].forEach((label) => {
+    const option = document.createElement("option");
+    option.value = label;
+    fragment.appendChild(option);
+  });
   replaceChildrenSafe(categorySuggestions, fragment);
 }
 
@@ -1127,6 +1208,7 @@ function buildSettingsPayload(settings) {
     greeting: (settings.greeting || "").trim(),
     footer: normaliseFooterValue(settings.footer),
     weather: buildWeatherPayload(settings.weather),
+    categories: parseCategoryList(settings.categories),
   };
 }
 
@@ -1700,6 +1782,12 @@ function bindEvents() {
 
   if (siteWeatherCityInput) {
     siteWeatherCityInput.addEventListener("input", handleWeatherInputChange);
+  }
+
+  if (siteCategoriesInput) {
+    siteCategoriesInput.addEventListener("input", () => {
+      handleSettingsChange("categories", siteCategoriesInput.value);
+    });
   }
 
   if (modalForm) {

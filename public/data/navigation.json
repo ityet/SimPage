@@ -6,7 +6,8 @@
     "footer": "** LeoNavs ** 不断学习，不断尝试，不断进步！！",
     "weather": {
       "city": "杭州"
-    }
+    },
+    "categories": ["技术社区", "实用工具", "知识学习"]
   },
   "apps": [
     {

@@ -62,6 +62,7 @@ const DEFAULT_SITE_SETTINGS = {
   greeting: "",
   footer: "",
   weather: { ...defaultWeather },
+  categories: [],
 };
 
 const defaultFaviconHref = faviconLink?.getAttribute("href") || "data:,";
@@ -76,6 +77,8 @@ let yiyanMessage = "";
 let footerContentValue = "";
 let visitorCountKnown = false;
 let visitorCountValue = 0;
+// 书签分类的展示顺序（来自站点设置）；为空时完全沿用数据里的出现顺序
+let bookmarkCategoryOrder = [];
 
 const timeFormatter = new Intl.DateTimeFormat("zh-CN", {
   hour: "2-digit",
@@ -283,12 +286,39 @@ function prepareSiteSettings(settings) {
     }
   }
 
+  prepared.categories = normaliseCategoryOrder(settings.categories);
+
   return prepared;
+}
+
+/**
+ * 规范化分类顺序（来自站点设置）。
+ *
+ * 仅做 trim、丢弃空值与按大小写不敏感去重，保留顺序，不做排序 —— 顺序本身就是配置语义。
+ *
+ * @param {*} raw 原始值，期望为字符串数组
+ * @returns {string[]} 有序分类列表
+ */
+function normaliseCategoryOrder(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  const result = [];
+  raw.forEach((entry) => {
+    if (typeof entry !== "string") return;
+    const label = entry.trim();
+    if (!label) return;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(label);
+  });
+  return result;
 }
 
 function applySiteSettings(settings) {
   const prepared = prepareSiteSettings(settings);
   customGreeting = prepared.greeting;
+  bookmarkCategoryOrder = prepared.categories;
 
   if (siteNameElement) {
     siteNameElement.textContent = prepared.siteName;
@@ -572,7 +602,40 @@ function groupBookmarksByCategory(items) {
     group.items.push(item);
   });
 
-  return groups;
+  return sortGroupsByConfiguredOrder(groups);
+}
+
+/**
+ * 按站点设置里配置的分类顺序重排分组。
+ *
+ * 配置中出现的分类按配置顺序排在前面；未出现在配置里的分组（含「未分类」）
+ * 保持它们在数据里的相对顺序，统一排在后面。未配置任何分类时原样返回，
+ * 保证无配置时的展示与改动前完全一致。
+ *
+ * @param {Array<{key: string, label: string, items: object[], isUncategorised: boolean}>} groups
+ * @returns {Array<{key: string, label: string, items: object[], isUncategorised: boolean}>}
+ */
+function sortGroupsByConfiguredOrder(groups) {
+  if (!bookmarkCategoryOrder.length) return groups;
+
+  const rank = new Map();
+  bookmarkCategoryOrder.forEach((label, index) => {
+    const key = label.toLowerCase();
+    if (!rank.has(key)) rank.set(key, index);
+  });
+
+  const configured = [];
+  const rest = [];
+  groups.forEach((group) => {
+    if (rank.has(group.key)) {
+      configured.push(group);
+    } else {
+      rest.push(group);
+    }
+  });
+
+  configured.sort((a, b) => rank.get(a.key) - rank.get(b.key));
+  return configured.concat(rest);
 }
 
 function createTile(item) {

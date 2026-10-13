@@ -42,7 +42,7 @@
         <div class="section-header admin-section-header">
           <div>
             <h2 id="site-settings-title">站点信息</h2>
-            <p>配置导航页的名称、Logo 以及问候语。</p>
+            <p>配置导航页的名称、Logo、问候语，以及书签分类。</p>
           </div>
         </div>
         <div class="settings-grid">
@@ -78,6 +78,19 @@
             </div>
             <p class="field-description" id="site-weather-summary">
               填写城市名称，保存后即可自动获取天气（使用 Open-Meteo 免费服务）。
+            </p>
+          </div>
+
+          <div class="field field-span-2">
+            <span>书签分类（用 | 分隔）</span>
+            <input
+              type="text"
+              id="site-categories"
+              autocomplete="off"
+              placeholder="例如：技术社区|实用工具|知识学习"
+            />
+            <p class="field-description">
+              决定编辑书签时的分类候选，以及前台书签分组的展示顺序（按此处的先后排列）。编辑书签时也可临时输入未列出的分类，它们会排到最后。
             </p>
           </div>
 
