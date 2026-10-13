@@ -54,7 +54,9 @@ const DEFAULT_ADMIN_PASSWORD = "admin123";
 
 // 上游图标抓取服务（真实抓取目标站点的 favicon + 标题 + 描述）
 const FAVICON_API_ENDPOINT = "https://favicon.yy.luler.top/api/favicon";
-const FAVICON_REQUEST_TIMEOUT_MS = 12000; // 实测单次耗时约 1s，留足余量
+// 上游是香港的小型 VPS，跨境链路拥塞时单次可达 9.5s+（实测抓 github.com 用了 9.55s），
+// 原先的 12s 会把"慢但成功"的请求误判成超时，故放宽到 25s。
+const FAVICON_REQUEST_TIMEOUT_MS = 25000;
 const FAVICON_TARGET_MAX_LENGTH = 2048;
 
 // 默认站点配置（以 public/data/navigation.json 为准，全仓唯一来源）
@@ -998,6 +1000,57 @@ function pickFaviconSizes(raw) {
   return result;
 }
 
+/** 降级原因码 → 面向用户的说法 */
+const FAVICON_DEGRADED_REASONS = Object.freeze({
+  "upstream-unreachable": "图标服务暂时不可用",
+  "upstream-timeout": "图标服务响应超时",
+  "upstream-scrape-failed": "图标服务未能抓取该站点",
+});
+
+/**
+ * 上游失败时的降级响应：改用站点自身的 `<origin>/favicon.ico`，让「自动获取」始终有结果。
+ *
+ * 实测该上游是香港的小型 VPS，跨境链路拥塞时既可能整体超时，也可能它自己抓不到
+ * 目标站点（返回 500 `context deadline exceeded`）——例如 `down.ityet.com:99` 从国内
+ * 访问仅 0.04s，上游却抓不动。这类失败与用户填的链接是否有效无关，直接报错会让用户
+ * 误以为是自己写错了地址，故降级为站点自身地址并如实标注。
+ *
+ * 只有连站点自身地址都推导不出来时，才退化为硬失败。
+ *
+ * @param {string} rawTarget 用户填写的原始链接
+ * @param {string} reason 失败原因码
+ * @param {number} [upstreamStatus] 上游 HTTP 状态码（若有）
+ * @returns {Response}
+ */
+function degradedFaviconResponse(rawTarget, reason, upstreamStatus) {
+  const label = FAVICON_DEGRADED_REASONS[reason] || "图标服务暂时不可用";
+  const fallbackUrl = deriveFaviconUrl(rawTarget);
+
+  if (!fallbackUrl) {
+    return jsonResponse(
+      {
+        success: false,
+        reason,
+        upstreamStatus,
+        message: `${label}，且无法从该链接推导出图标地址，请稍后重试。`,
+      },
+      502,
+    );
+  }
+
+  return jsonResponse({
+    success: true,
+    degraded: true,
+    reason,
+    upstreamStatus,
+    title: "",
+    description: "",
+    url: rawTarget,
+    faviconUrl: fallbackUrl,
+    message: `${label}，已按该站点自身地址填入图标（未获取到标题与描述）。`,
+  });
+}
+
 /**
  * POST /api/fetch-logo —— 调用上游服务真实抓取目标站点的图标与站点信息。
  *
@@ -1009,6 +1062,9 @@ function pickFaviconSizes(raw) {
  * 响应压到几百字节；如需自包含的 data URI 兜底（对方站点 `/favicon.ico` 可能 404），
  * 显式加查询参数 `?includeFavicons=1` 即可取回筛选后的 `favicons` 映射。
  *
+ * 所有失败响应都带 `reason` 码（`upstream-*` / `invalid-target` / `url-too-long`），
+ * 便于一眼区分"图标服务的问题"与"用户填错了地址"。
+ *
  * @param {Request} request 请求体形如 `{ "url": "https://example.com" }`，也接受 `example.com:99` 这类裸地址
  * @returns {Promise<Response>}
  */
@@ -1017,10 +1073,16 @@ async function handleFetchLogo(request) {
   const rawTarget = typeof body?.url === "string" ? body.url.trim() : "";
 
   if (!rawTarget) {
-    return jsonResponse({ success: false, message: "请先填写链接地址。" }, 400);
+    return jsonResponse(
+      { success: false, reason: "empty-url", message: "请先填写链接地址。" },
+      400,
+    );
   }
   if (rawTarget.length > FAVICON_TARGET_MAX_LENGTH) {
-    return jsonResponse({ success: false, message: "链接地址过长，无法解析。" }, 400);
+    return jsonResponse(
+      { success: false, reason: "url-too-long", message: "链接地址过长，无法解析。" },
+      400,
+    );
   }
 
   const fetchOptions = {
@@ -1049,23 +1111,26 @@ async function handleFetchLogo(request) {
     if (!response.ok) {
       const upstreamMessage = typeof payload?.error === "string" ? payload.error : "";
       console.warn(`[fetch-logo] 上游返回 ${response.status}：${upstreamMessage || "(无错误信息)"}`);
-      const isClientError = response.status >= 400 && response.status < 500;
-      return jsonResponse(
-        {
-          success: false,
-          message: isClientError
-            ? "链接地址无效，请检查后重试。"
-            : "未能获取该站点的图标，请确认链接可以正常访问。",
-        },
-        isClientError ? 400 : 502,
-      );
+
+      // 4xx = 我们递上去的地址上游不认，属用户输入问题，不做兜底
+      if (response.status >= 400 && response.status < 500) {
+        return jsonResponse(
+          { success: false, reason: "invalid-target", message: "链接地址无效，请检查后重试。" },
+          400,
+        );
+      }
+      // 5xx = 上游自己抓不到目标站点（跨境链路拥塞时常见）→ 降级兜底
+      return degradedFaviconResponse(rawTarget, "upstream-scrape-failed", response.status);
     }
 
     const resolvedUrl = firstNonEmptyString(payload?.url, rawTarget);
     const faviconUrl = firstNonEmptyString(payload?.faviconUrl) || deriveFaviconUrl(resolvedUrl);
 
     if (!faviconUrl) {
-      return jsonResponse({ success: false, message: "未能从该站点解析出图标地址。" }, 502);
+      return jsonResponse(
+        { success: false, reason: "no-favicon", message: "未能从该站点解析出图标地址。" },
+        502,
+      );
     }
 
     const result = {
@@ -1085,10 +1150,11 @@ async function handleFetchLogo(request) {
     return jsonResponse(result);
   } catch (error) {
     if (error && error.name === "AbortError") {
-      return jsonResponse({ success: false, message: "获取图标超时，请稍后重试。" }, 504);
+      console.warn(`[fetch-logo] 上游超时（> ${FAVICON_REQUEST_TIMEOUT_MS}ms）`);
+      return degradedFaviconResponse(rawTarget, "upstream-timeout");
     }
     console.error("调用上游图标服务失败：", error);
-    return jsonResponse({ success: false, message: "图标服务暂时不可用，请稍后重试。" }, 502);
+    return degradedFaviconResponse(rawTarget, "upstream-unreachable");
   } finally {
     if (timeoutId !== undefined) {
       clearTimeout(timeoutId);

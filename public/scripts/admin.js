@@ -10,6 +10,7 @@ const modal = document.getElementById("editor-modal");
 const modalForm = document.getElementById("editor-form");
 const modalTitle = document.getElementById("editor-modal-title");
 const modalError = document.getElementById("editor-error");
+const modalHint = document.getElementById("editor-hint");
 const modalNameInput = document.getElementById("editor-name");
 const modalUrlInput = document.getElementById("editor-url");
 const modalDescriptionInput = document.getElementById("editor-description");
@@ -738,6 +739,7 @@ function openEditor(type, index) {
   if (modalError) {
     modalError.textContent = "";
   }
+  setModalHint("");
 
   showModal();
 }
@@ -761,6 +763,7 @@ function closeEditor() {
   if (modalError) {
     modalError.textContent = "";
   }
+  setModalHint("");
   hideBookmarkCategoryField();
   modalContext = null;
 }
@@ -768,6 +771,22 @@ function closeEditor() {
 function setModalError(message) {
   if (!modalError) return;
   modalError.textContent = message;
+}
+
+/**
+ * 显示/清除非致命提示（例如图标服务不可用、已按站点自身地址兜底）。
+ * 与 setModalError 分开，避免把"有结果但降级了"渲染成错误。
+ * @param {string} message 传空串即清除
+ */
+function setModalHint(message) {
+  if (!modalHint) return;
+  if (message) {
+    modalHint.textContent = message;
+    modalHint.hidden = false;
+  } else {
+    modalHint.textContent = "";
+    modalHint.hidden = true;
+  }
 }
 
 function collectPayloadFromModal() {
@@ -1320,6 +1339,7 @@ async function handleFetchLogo() {
   fetchLogoButton.disabled = true;
   fetchLogoButton.textContent = "获取中...";
   setModalError("");
+  setModalHint("");
 
   try {
     const response = await fetch("/api/fetch-logo", {
@@ -1352,6 +1372,12 @@ async function handleFetchLogo() {
         FETCHED_DESCRIPTION_MAX_LENGTH,
       );
       if (fetchedDescription) modalDescriptionInput.value = fetchedDescription;
+    }
+
+    // 后端在上游不可用时降级为「站点自身的 /favicon.ico」，仍算成功但要如实告知
+    if (result.degraded) {
+      setModalHint(result.message || "图标服务暂时不可用，已按站点自身地址填入图标。");
+      console.warn("[admin] 图标走了兜底地址：", result.reason || "unknown");
     }
 
     markDirty(); // 标记为有修改

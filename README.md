@@ -113,6 +113,12 @@ edgeone makers dev --name simpage --skip-env-sync
 
 `/api/fetch-logo` 默认只返回 `faviconUrl`（响应约 200B）；若需要自包含、不依赖对方站点 `/favicon.ico` 可达的 base64 data URI，加查询参数 `?includeFavicons=1`，会额外返回筛选后的 `favicons` 映射（16/32/64/128/256 五档，整包约 55KB，256 档单档约 33KB）。
 
+该接口依赖的上游是**香港的一台小型 VPS**，跨境链路拥塞时会失败（实测单次耗时从 1s 波动到 9.5s+，偶发整体超时）。因此：
+
+- 上游失败时**降级兜底**：改用站点自身的 `<origin>/favicon.ico`，响应为 `{ success: true, degraded: true, reason, faviconUrl, message }`，前端会填入图标并在弹窗里标注「已按站点自身地址填入」；只有连站点地址都推导不出来时才硬失败。
+- 所有失败响应都带 `reason` 码，便于区分「图标服务的问题」与「链接填错了」：`upstream-unreachable` / `upstream-timeout` / `upstream-scrape-failed` / `invalid-target` / `url-too-long` / `empty-url` / `no-favicon`。
+- 上游超时为 25s（原先 12s 会误杀"慢但成功"的请求）。
+
 ## KV 键位说明
 
 | Key | 内容 | 说明 |

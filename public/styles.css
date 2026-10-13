@@ -16,6 +16,7 @@
   --accent-strong: rgba(59, 130, 246, 0.85);
   --danger: #ef4444;
   --success: #22c55e;
+  --warning: #b45309;
 }
 
 body.dark-theme,
@@ -32,6 +33,7 @@ body.dark-theme,
   --divider-soft: rgba(74, 85, 104, 0.24);
   --accent-muted: #3A3A3C;
   --accent-strong: rgba(96, 165, 250, 0.85);
+  --warning: #fbbf24;
 }
 
 body.dark-theme {
@@ -1844,6 +1846,14 @@ body.dark-theme .theme-toggle:focus-visible {
   margin: 0;
   font-size: 0.85rem;
   color: var(--danger);
+}
+
+/* 非致命提示（例如图标走了兜底地址），与错误信息区分开 */
+.modal-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--warning);
 }
 
 body.modal-open {
