@@ -116,7 +116,9 @@ edgeone makers dev --name simpage --skip-env-sync
 该接口依赖的上游是**香港的一台小型 VPS**，跨境链路拥塞时会失败（实测单次耗时从 1s 波动到 9.5s+，偶发整体超时）。因此：
 
 - 上游失败时**降级兜底**：改用站点自身的 `<origin>/favicon.ico`，响应为 `{ success: true, degraded: true, reason, faviconUrl, message }`，前端会填入图标并在弹窗里标注「已按站点自身地址填入」；只有连站点地址都推导不出来时才硬失败。
+- **地址本身不可用**（不兜底，直接 400 `invalid-target`）有两种来源：① 上游返回 4xx，明确拒收该地址；② 上游返回 5xx，但错误文本指向目标站点 / URL 本身有问题——上游是 Go 写的，会把「域名解析失败（`no such host`）」「URL 缺 Host（`no Host in request URL`）」「协议不支持（`unsupported protocol scheme`）」这类也塞进 5xx。若此时仍兜底，只会往卡片里填一个必然加载失败的图标，故一并归为「地址无效或无法访问」。
 - 所有失败响应都带 `reason` 码，便于区分「图标服务的问题」与「链接填错了」：`upstream-unreachable` / `upstream-timeout` / `upstream-scrape-failed` / `invalid-target` / `url-too-long` / `empty-url` / `no-favicon`。
+- 上游返回的 `faviconUrl` 会过一次白名单（仅 `http(s)://` 或 `data:image/`），其余一律退回按站点 origin 推导，避免第三方返回的畸形协议被写进 KV。
 - 上游超时为 25s（原先 12s 会误杀"慢但成功"的请求）。
 
 ## KV 键位说明

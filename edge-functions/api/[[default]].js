@@ -59,6 +59,12 @@ const FAVICON_API_ENDPOINT = "https://favicon.yy.luler.top/api/favicon";
 const FAVICON_REQUEST_TIMEOUT_MS = 25000;
 const FAVICON_TARGET_MAX_LENGTH = 2048;
 
+// 上游是 Go 写的，会把「域名解析不了 / URL 畸形」也塞进 5xx 返回（实测：
+// 不存在的域名 → 500 + {"error":"... dial tcp: lookup xxx: no such host"}）。
+// 这类是地址本身不可用，兜底只会往卡片里填一个必然加载失败的图标。
+const UPSTREAM_TARGET_FAULT_PATTERN =
+  /no such host|no Host in request URL|unsupported protocol scheme|Invalid URL/i;
+
 // 默认站点配置（以 public/data/navigation.json 为准，全仓唯一来源）
 const DEFAULT_SETTINGS = Object.freeze({
   siteName: "Navs",
@@ -973,6 +979,24 @@ function deriveFaviconUrl(rawUrl) {
 }
 
 /**
+ * 判断上游给的图标地址能否直接写进 <img src>。
+ *
+ * 上游是第三方服务，返回内容不受我们控制；这里做一次白名单过滤，
+ * 避免 javascript: 之类的串被写进 KV 长期留存。前端的渲染约定见
+ * public/scripts/main.js:444（仅 http(s) 或 data: 前缀才当图片渲染），
+ * 此处比前端更严一档：data: 只认 data:image/。
+ *
+ * @param {string} value 待校验的地址
+ * @returns {boolean} 可作为图标地址使用时返回 true
+ */
+function isUsableIconUrl(value) {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return /^https?:\/\//i.test(trimmed) || trimmed.startsWith("data:image/");
+}
+
+/**
  * 判断查询参数是否为真值开关（`1` / `true` / `yes`，大小写不敏感）。
  * @param {Request} request
  * @param {string} name 参数名
@@ -1112,19 +1136,34 @@ async function handleFetchLogo(request) {
       const upstreamMessage = typeof payload?.error === "string" ? payload.error : "";
       console.warn(`[fetch-logo] 上游返回 ${response.status}：${upstreamMessage || "(无错误信息)"}`);
 
-      // 4xx = 我们递上去的地址上游不认，属用户输入问题，不做兜底
-      if (response.status >= 400 && response.status < 500) {
+      // 两种都算「地址本身不可用」，不做兜底：
+      // 1) 4xx —— 上游明确拒收这个地址
+      // 2) 5xx 但错误文本指向目标站点/URL 本身有问题（域名解析不了、URL 缺 Host 等）
+      const targetUnusable =
+        (response.status >= 400 && response.status < 500) ||
+        UPSTREAM_TARGET_FAULT_PATTERN.test(upstreamMessage);
+
+      if (targetUnusable) {
         return jsonResponse(
-          { success: false, reason: "invalid-target", message: "链接地址无效，请检查后重试。" },
+          {
+            success: false,
+            reason: "invalid-target",
+            message: "链接地址无效或无法访问该站点，请检查后重试。",
+          },
           400,
         );
       }
-      // 5xx = 上游自己抓不到目标站点（跨境链路拥塞时常见）→ 降级兜底
+
+      // 真正的上游侧故障（实测：抓取超时 → "context deadline exceeded"）→ 降级兜底
       return degradedFaviconResponse(rawTarget, "upstream-scrape-failed", response.status);
     }
 
     const resolvedUrl = firstNonEmptyString(payload?.url, rawTarget);
-    const faviconUrl = firstNonEmptyString(payload?.faviconUrl) || deriveFaviconUrl(resolvedUrl);
+    // 上游回畸形协议时按站点 origin 重新推导，绝不把原串透传给前端
+    const upstreamFaviconUrl = firstNonEmptyString(payload?.faviconUrl);
+    const faviconUrl = isUsableIconUrl(upstreamFaviconUrl)
+      ? upstreamFaviconUrl
+      : deriveFaviconUrl(resolvedUrl);
 
     if (!faviconUrl) {
       return jsonResponse(
