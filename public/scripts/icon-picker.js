@@ -1,5 +1,5 @@
 /**
- * SimPage 共用图标选择器（规范源）
+ * SimPage 共用图标选择器（规范源）—— 彩色 Emoji 选择器
  *
  * 一处实现、两处复用：网页端 fetch `/data/icon-library.json`，扩展端 import `lib/icon-data.js`。
  * 之所以同时支持 `library`（已加载对象）与 `libraryUrl`（组件内 fetch）：
@@ -21,38 +21,24 @@
  * 站点 styles.css 用的是另一套命名（--glass-bg / --text-primary / …），因此站点侧靠显式设置
  * `--sp-ip-*` 接入；扩展 popup.css 则天然提供 --surface/--text/--border/--accent/--surface-soft/--text-muted。
  *
- * 图标体自托管：数据里的 `base` 是**路径**（`/icons/bi/`、`/icons/twemoji/`），不是绝对 URL。
+ * 图标体自托管：数据里的 `base` 是**路径**（`/icons/twemoji/`），不是绝对 URL。
  * 选择器通过 `origin` 参数（缺省取 `location.origin`）拼出绝对 URL 用于显示与入库——
  * 因为扩展页里没有可用的 `location.origin` 语义，相对路径会被解析成扩展自身 origin 而裂图。
  * 没有 origin 时退回相对路径（不抛错）。
  *
- * Emoji 有两种渲染样式（数据驱动，读 `library.emoji.styles`）：
- *   - `char`：直接渲染 emoji 字符，零网络依赖；
- *   - `twemoji`：渲染自托管的彩色 SVG（`base + slug + suffix`），选中时写**完整 URL**。
- * 两种样式共用同一套中文索引与同一套搜索逻辑，只是 `valueOf` 取值不同，因此切换样式只需重渲网格。
+ * 本选择器只提供**彩色 Emoji**（自托管的 Twemoji SVG）。渲染样式**数据驱动**（读 `library.emoji.styles`）：
+ * 当前只有一种彩色样式（`base + slug + suffix`），选中时写**完整 URL**。
+ * 历史数据里已存的「emoji 字符」与「图片 URL」由宿主（main.js / admin.js / popup.js）自行渲染，
+ * 与本选择器无关——本文件不再提供「字符」样式，也不再涉及单色图标集。
  */
 
-/** 组件版本，便于宿主判断能力。v3：图标体自托管，base 由绝对 URL 改为路径，新增 origin 参数。 */
-export const ICON_PICKER_VERSION = 3;
+/** 组件版本，便于宿主判断能力。v4：只提供彩色 Emoji（移除 Bootstrap 图标与「字符」样式）。 */
+export const ICON_PICKER_VERSION = 4;
 
 /** 注入样式的 <style> id（只注入一次） */
 const STYLE_ID = "sp-icon-picker-style";
 /** 首屏渲染条数 */
 const ITEM_BATCH = 120;
-
-/** 与前台 main.js / 扩展 popup.js 保持一致的「是否图片地址」判定 */
-const IMAGE_ICON_RE = /^https?:\/\//i;
-/**
- * 彩色 emoji（Twemoji）URL 特征：自托管 `/icons/twemoji/…`，或历史数据的
- * `api.iconify.design/twemoji/…`，或直接以 `twemoji/` 结尾。
- * 用于「打开时默认停在哪个样式」与「深色不要反色」。
- */
-const EMOJI_COLOR_RE = /(\/icons\/twemoji\/|api\.iconify\.design\/twemoji\/|twemoji\/$)/i;
-/**
- * 单色图标集（Bootstrap Icons）URL 特征：自托管 `/icons/bi/…`、
- * 历史 npmmirror 的 `bootstrap-icons`、历史 Iconify 的 `api.iconify.design/bi/`。
- */
-const BOOTSTRAP_URL_RE = /(\/icons\/bi\/|bootstrap-icons|api\.iconify\.design\/bi\/)/i;
 
 const CSS = `
 .sp-icon-picker {
@@ -134,51 +120,6 @@ const CSS = `
 .sp-ip-close:hover {
   background: var(--sp-ip-soft, var(--surface-soft, var(--sp-ip-fb-soft)));
   color: var(--sp-ip-text, var(--text, var(--sp-ip-fb-text)));
-}
-
-.sp-ip-tabs {
-  display: flex;
-  gap: 6px;
-  padding: 0 14px 8px;
-}
-.sp-ip-tab {
-  padding: 5px 12px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--sp-ip-muted, var(--text-muted, var(--sp-ip-fb-muted)));
-  background: var(--sp-ip-soft, var(--surface-soft, var(--sp-ip-fb-soft)));
-  border: 1px solid transparent;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.sp-ip-tab.is-active {
-  color: #fff;
-  background: var(--sp-ip-accent, var(--accent, var(--sp-ip-fb-accent)));
-}
-
-/* Emoji 样式分段控件（「字符 | 彩色」）。数据驱动：按钮由 library.emoji.styles 生成，
-   因此将来新增彩色集（fluent / noto）只要在产物里加一条 styles，UI 自动多一个分段。
-   单独一类 .sp-ip-style 而非复用 .sp-ip-tab：页签测试与文案断言只认 .sp-ip-tab。 */
-.sp-ip-styles {
-  display: flex;
-  gap: 4px;
-  padding: 0 14px 8px;
-}
-.sp-ip-styles[hidden] { display: none; }
-.sp-ip-style {
-  padding: 3px 12px;
-  font: inherit;
-  font-size: 11.5px;
-  color: var(--sp-ip-muted, var(--text-muted, var(--sp-ip-fb-muted)));
-  background: var(--sp-ip-soft, var(--surface-soft, var(--sp-ip-fb-soft)));
-  border: 1px solid transparent;
-  border-radius: 7px;
-  cursor: pointer;
-}
-.sp-ip-style.is-active {
-  color: #fff;
-  background: var(--sp-ip-accent, var(--accent, var(--sp-ip-fb-accent)));
 }
 
 .sp-ip-search { padding: 0 14px 8px; }
@@ -364,51 +305,6 @@ function loadLibraryFromUrl(url) {
 }
 
 /**
- * 值是否应按图片渲染。
- * @param {string} value
- * @returns {boolean}
- */
-function isImageIcon(value) {
-  const text = String(value || "").trim();
-  return IMAGE_ICON_RE.test(text) || text.startsWith("data:image/");
-}
-
-/**
- * 判别 `icon` 字段的值的类型，供宿主与选择器决定默认页签 / 样式。
- *
- * 三种返回值（刻意做成纯函数、不读 DOM，便于在 Node 里单测）：
- *   - `"emojiColor"`：彩色 emoji URL（自托管 `/icons/twemoji/<slug>.svg`，兼容历史 `api.iconify.design/twemoji/…`）
- *   - `"imageUrl"`  ：图片地址——单色图标集（自托管 `/icons/bi/…`、历史 `bootstrap-icons` /
- *                     `api.iconify.design/bi/`）以及其它 `http(s)://` / `data:image/`
- *   - `"emojiChar"` ：其余（emoji 字符，含空值）
- *
- * 顺序有讲究：彩色 emoji 也是 URL，必须先判，否则会被吞进 `imageUrl`；
- * 自托管的单色路径（`/icons/bi/…`，根相对、不以 http 开头）也必须先于 `isImageIcon` 判，
- * 否则会被误判成字符。
- *
- * @param {string} value
- * @returns {"emojiChar" | "emojiColor" | "imageUrl"}
- */
-export function detectIconKind(value) {
-  const text = String(value || "").trim();
-  if (EMOJI_COLOR_RE.test(text)) return "emojiColor";
-  if (BOOTSTRAP_URL_RE.test(text)) return "imageUrl";
-  if (isImageIcon(text)) return "imageUrl";
-  return "emojiChar";
-}
-
-/**
- * 该值是否为单色图标集（Bootstrap Icons）的 URL。
- * 覆盖自托管地址（`/icons/bi/…`）与存量数据里的旧地址（npmmirror `bootstrap-icons`、
- * Iconify `api.iconify.design/bi/`）。
- * @param {string} value
- * @returns {boolean}
- */
-export function isBootstrapIconUrl(value) {
-  return BOOTSTRAP_URL_RE.test(String(value || "").trim());
-}
-
-/**
  * 搜索词分词：小写、按空白切分。
  * @param {string} query
  * @returns {string[]}
@@ -514,26 +410,6 @@ export function openIconPicker(options = {}) {
   closeBtn.setAttribute("aria-label", "关闭");
   head.append(titleEl, closeBtn);
 
-  // Tab
-  const tabs = el(doc, "div", "sp-ip-tabs");
-  tabs.setAttribute("role", "tablist");
-  const tabButtons = {};
-  for (const [key, label] of [
-    ["bootstrap", "Bootstrap 图标"],
-    ["emoji", "Emoji"],
-  ]) {
-    const button = el(doc, "button", "sp-ip-tab", { type: "button", textContent: label });
-    button.setAttribute("role", "tab");
-    tabButtons[key] = button;
-    tabs.appendChild(button);
-  }
-
-  // 样式分段控件（仅 Emoji 页签可见；按钮由 library.emoji.styles 生成）
-  const stylesWrap = el(doc, "div", "sp-ip-styles");
-  stylesWrap.setAttribute("role", "group");
-  stylesWrap.setAttribute("aria-label", "Emoji 样式");
-  stylesWrap.hidden = true;
-
   // 搜索
   const searchWrap = el(doc, "div", "sp-ip-search");
   const searchInput = el(doc, "input", null, { type: "search", autocomplete: "off", spellcheck: false });
@@ -558,22 +434,17 @@ export function openIconPicker(options = {}) {
   const clearBtn = el(doc, "button", "sp-ip-clear", { type: "button", textContent: "清除图标" });
   foot.append(currentEl, clearBtn);
 
-  panel.append(head, tabs, stylesWrap, searchWrap, cats, grid, foot);
+  panel.append(head, searchWrap, cats, grid, foot);
 
   // ---------------------------------------------------------------- 状态
   const data = {
-    bootstrapIcons: [],
-    bootstrapBase: "",
-    bootstrapSuffix: ".svg",
     emojiAll: [],
     emojiGroups: [],
-    emojiStyles: [{ id: "char", label: "字符" }],
-    emojiDefaultStyle: "char",
-    bootCategories: [],
+    // 彩色样式（数据驱动；applyLibrary 里从 library.emoji.styles 取值，只认带 base 的）
+    emojiStyles: [],
+    colorStyle: null,
   };
   const state = {
-    tab: "bootstrap",
-    style: "char", // Emoji 页签的渲染样式：char 字符 / twemoji 彩色
     phase: "loading", // loading | ready | error
     cat: "all",
     filtered: [],
@@ -617,22 +488,15 @@ export function openIconPicker(options = {}) {
 
   // ---------------------------------------------------------------- 关键词过滤
   function haystackFor(item) {
-    if (state.tab === "bootstrap") {
-      // item = [name, slug, keyword]；连字符视作空格
-      return `${item[0].replace(/-/g, " ")} ${item[2]}`.toLowerCase();
-    }
-    // item = [emoji, cnName, keyword, groupId]
+    // item = [emoji, cnName, keyword, groupId, slug]
     return `${item[1]} ${item[2]} ${item[0]}`.toLowerCase();
   }
 
   function computeFiltered() {
     const tokens = tokenize(searchInput.value);
-    const source = state.tab === "bootstrap" ? data.bootstrapIcons : data.emojiAll;
+    const source = data.emojiAll;
     return source.filter((item) => {
-      if (state.cat !== "all") {
-        const cat = state.tab === "bootstrap" ? item[1] : item[3];
-        if (cat !== state.cat) return false;
-      }
+      if (state.cat !== "all" && item[3] !== state.cat) return false;
       if (tokens.length === 0) return true;
       const hay = haystackFor(item);
       return tokens.every((token) => hay.includes(token));
@@ -665,8 +529,8 @@ export function openIconPicker(options = {}) {
 
   /**
    * 把数据里的 `base`（**路径**）+ 名字 + 后缀拼成「显示与入库都用」的 URL。
-   *   - base 已是绝对 URL / data URI（兼容 v2 旧产物）→ 原样拼接，绝不加 origin；
-   *   - 否则用 pickerOrigin 拼成绝对 URL；pickerOrigin 为空则退回相对路径（如 `/icons/bi/check.svg`）。
+   *   - base 已是绝对 URL / data URI（兼容旧产物）→ 原样拼接，绝不加 origin；
+   *   - 否则用 pickerOrigin 拼成绝对 URL；pickerOrigin 为空则退回相对路径（如 `/icons/twemoji/rocket.svg`）。
    * @param {string} base
    * @param {string} name
    * @param {string} suffix
@@ -678,17 +542,12 @@ export function openIconPicker(options = {}) {
     return pickerOrigin ? `${pickerOrigin}${assembled}` : assembled;
   }
 
-  /** item = [name, slug, keyword]（Bootstrap）或 [emoji, cnName, keyword, groupId, slug]（Emoji） */
+  /** item = [emoji, cnName, keyword, groupId, slug] */
   function valueOf(item) {
-    if (state.tab === "bootstrap") {
-      return composeUrl(data.bootstrapBase, item[0], data.bootstrapSuffix);
-    }
-    if (state.style === "twemoji") {
-      const style = styleById("twemoji");
-      // 老数据（v1，无 slug）或宿主未提供 twemoji 样式时退回字符，避免拼出 "undefined" URL
-      if (style && style.base && item[4]) {
-        return composeUrl(style.base, item[4], style.suffix || ".svg");
-      }
+    const style = data.colorStyle;
+    // 老数据（无 slug）退回字符本身，避免拼出 "undefined" URL
+    if (style && style.base && item[4]) {
+      return composeUrl(style.base, item[4], style.suffix || ".svg");
     }
     return item[0];
   }
@@ -716,29 +575,18 @@ export function openIconPicker(options = {}) {
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", "false");
 
-      if (state.tab === "bootstrap") {
-        const img = el(doc, "img", null, { alt: "", loading: "lazy", decoding: "async" });
-        img.src = valueOf(item);
-        button.title = item[0];
-        button.appendChild(img);
-      } else if (state.style === "twemoji" && item[4]) {
-        // 彩色 emoji：尺寸与单色图标网格一致；加载失败回退为字符本身，避免裂图
-        const img = el(doc, "img", null, { alt: "", loading: "lazy", decoding: "async" });
-        img.addEventListener(
-          "error",
-          () => {
-            if (img.parentNode) img.parentNode.replaceChild(el(doc, "span", "sp-ip-emoji", { textContent: item[0] }), img);
-          },
-          { once: true },
-        );
-        img.src = valueOf(item);
-        button.title = item[1] || item[0];
-        button.appendChild(img);
-      } else {
-        const span = el(doc, "span", "sp-ip-emoji", { textContent: item[0] });
-        button.title = item[1] || item[0];
-        button.appendChild(span);
-      }
+      // 彩色 emoji：加载失败时回退为字符本身，避免裂图
+      const img = el(doc, "img", null, { alt: "", loading: "lazy", decoding: "async" });
+      img.addEventListener(
+        "error",
+        () => {
+          if (img.parentNode) img.parentNode.replaceChild(el(doc, "span", "sp-ip-emoji", { textContent: item[0] }), img);
+        },
+        { once: true },
+      );
+      img.src = valueOf(item);
+      button.title = item[1] || item[0];
+      button.appendChild(img);
 
       if (button.dataset.value === state.selected && state.selected !== "") {
         button.classList.add("is-selected");
@@ -785,50 +633,20 @@ export function openIconPicker(options = {}) {
     observer.observe(sentinel);
   }
 
-  // ---------------------------------------------------------------- Emoji 样式
-  /** 按 id 取样式定义（含 base / suffix） */
-  function styleById(id) {
-    return data.emojiStyles.find((style) => style.id === id) || null;
-  }
-
-  /** 渲染样式分段按钮（数据驱动，只在数据就绪后调一次） */
-  function buildStyles() {
-    const fragment = doc.createDocumentFragment();
-    for (const style of data.emojiStyles) {
-      const button = el(doc, "button", "sp-ip-style", { type: "button", textContent: style.label || style.id });
-      button.dataset.id = style.id;
-      button.addEventListener("click", () => setStyle(style.id));
-      fragment.appendChild(button);
-    }
-    stylesWrap.replaceChildren(fragment);
-    syncStyleButtons();
-  }
-
-  /** 同步分段控件的激活态（含 aria-pressed） */
-  function syncStyleButtons() {
-    for (const node of stylesWrap.querySelectorAll(".sp-ip-style")) {
-      const active = node.dataset.id === state.style;
-      node.classList.toggle("is-active", active);
-      node.setAttribute("aria-pressed", String(active));
-    }
-  }
-
-  /** 切换 Emoji 渲染样式：只换取值方式与渲染节点，搜索索引与搜索框行为完全不变 */
-  function setStyle(id) {
-    if (state.tab !== "emoji" || state.style === id) return;
-    state.style = id;
-    syncStyleButtons();
+  // ---------------------------------------------------------------- 复位
+  /** 复位到初始状态：全部分类、清空搜索框、重建分类胶囊与网格。 */
+  function resetAll() {
+    state.cat = "all";
+    searchInput.placeholder = "搜索：火箭 / 国旗 / 笑脸";
+    searchInput.value = "";
+    buildCats();
     resetGrid();
   }
 
   // ---------------------------------------------------------------- 分类胶囊
   function buildCats() {
     const pills = [["all", "全部"]];
-    if (state.tab === "bootstrap") {
-      for (const [slug, label] of data.bootCategories) pills.push([slug, label]);
-    } else {
-      for (const group of data.emojiGroups) pills.push([group.id, group.label]);
-    }
+    for (const group of data.emojiGroups) pills.push([group.id, group.label]);
     const fragment = doc.createDocumentFragment();
     for (const [id, label] of pills) {
       const pill = el(doc, "button", "sp-ip-cat", { type: "button", textContent: label });
@@ -844,33 +662,6 @@ export function openIconPicker(options = {}) {
       fragment.appendChild(pill);
     }
     cats.replaceChildren(fragment);
-  }
-
-  // ---------------------------------------------------------------- Tab 切换
-  /**
-   * 切换页签。
-   * @param {"bootstrap"|"emoji"} tab
-   * @param {string} [styleOverride] 仅 Emoji 页签有效：强制用某个样式（如打开时当前值是彩色 emoji）
-   */
-  function applyTab(tab, styleOverride) {
-    state.tab = tab;
-    state.cat = "all";
-    if (tab === "emoji") {
-      const wanted = styleOverride && styleById(styleOverride) ? styleOverride : data.emojiDefaultStyle;
-      state.style = styleById(wanted) ? wanted : data.emojiStyles[0].id;
-    }
-    stylesWrap.hidden = tab !== "emoji";
-    syncStyleButtons();
-    for (const key of Object.keys(tabButtons)) {
-      const active = key === tab;
-      tabButtons[key].classList.toggle("is-active", active);
-      tabButtons[key].setAttribute("aria-selected", String(active));
-    }
-    searchInput.placeholder =
-      tab === "bootstrap" ? "搜索：书签 / bookmark / star" : "搜索：书签 / 收藏 / 🔖";
-    searchInput.value = "";
-    buildCats();
-    resetGrid();
   }
 
   // ---------------------------------------------------------------- 键盘
@@ -936,33 +727,22 @@ export function openIconPicker(options = {}) {
 
   // ---------------------------------------------------------------- 数据就绪
   function applyLibrary(lib) {
-    if (!lib || !lib.bootstrap || !lib.emoji) {
+    if (!lib || !lib.emoji) {
       throw new Error("图标库数据格式不正确。");
     }
-    data.bootstrapIcons = Array.isArray(lib.bootstrap.icons) ? lib.bootstrap.icons : [];
-    data.bootstrapBase = lib.bootstrap.base || "";
-    data.bootstrapSuffix = lib.bootstrap.suffix || ".svg";
-    data.bootCategories = Array.isArray(lib.bootstrap.categories) ? lib.bootstrap.categories : [];
     data.emojiGroups = Array.isArray(lib.emoji.groups) ? lib.emoji.groups : [];
-    // 样式由数据驱动；老产物（v1，无 styles）退化为「只有字符」
-    data.emojiStyles =
-      Array.isArray(lib.emoji.styles) && lib.emoji.styles.length ? lib.emoji.styles : [{ id: "char", label: "字符" }];
-    data.emojiDefaultStyle = data.emojiStyles[0].id || "char";
+    // 渲染样式由数据驱动；当前只提供彩色 emoji，取第一条带 base 的样式
+    data.emojiStyles = Array.isArray(lib.emoji.styles) ? lib.emoji.styles : [];
+    data.colorStyle = data.emojiStyles.find((style) => style && style.base) || null;
+    if (!data.colorStyle) {
+      throw new Error("图标库数据缺少可用的彩色 Emoji 样式。");
+    }
     // 四元组 + 分组 id：[emoji, 中文名, 关键词, groupId, slug]
     data.emojiAll = data.emojiGroups.flatMap((group) =>
       (group.items || []).map((item) => [item[0], item[1], item[2], group.id, item[3]]),
     );
-    buildStyles();
     state.phase = "ready";
-
-    // 打开时的默认页签 / 样式：按当前值的类型决定
-    // ⚠️ 空值是特例：新增条目时默认落在 **Bootstrap 图标**页（图标库是导航页最常见的来源，
-    //    也是扩展弹窗里「页面没抓到图标」时的常见路径）。只有「非空的 emoji 字符」才进 Emoji 页。
-    const kind = detectIconKind(state.selected);
-    if (!state.selected) applyTab("bootstrap");
-    else if (kind === "emojiColor") applyTab("emoji", "twemoji");
-    else if (kind === "imageUrl") applyTab("bootstrap");
-    else applyTab("emoji", "char");
+    resetAll();
     updateFooter();
   }
 
@@ -1006,8 +786,6 @@ export function openIconPicker(options = {}) {
   // ---------------------------------------------------------------- 事件绑定
   closeBtn.addEventListener("click", close);
   clearBtn.addEventListener("click", () => select(""));
-  tabButtons.bootstrap.addEventListener("click", () => applyTab("bootstrap"));
-  tabButtons.emoji.addEventListener("click", () => applyTab("emoji"));
   let searchTimer = null;
   searchInput.addEventListener("input", () => {
     if (searchTimer) clearTimeout(searchTimer);

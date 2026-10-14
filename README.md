@@ -17,10 +17,9 @@
 - **书签分类可配置**：在后台用 `|` 分隔集中配置分类（如 `技术社区|实用工具|知识学习`）。该列表既是录入书签时的候选项（仍可临时输入未列出的分类），也决定**前台书签分组的展示顺序**；未列出的分类排在最后。未配置时自动回退为「从现有书签推导并按名称排序」的旧行为。
 - **KV 数据存储**：导航数据、管理员凭据与访客计数保存在 EdgeOne Makers KV 中，确保高性能与高可用性。
 - **浏览器扩展**：`extension/` 内置 Chrome/Edge 扩展（Manifest V3），点一下工具栏图标即可把当前网页存为书签，自动带出标题、地址与图标。详见 [`extension/README.md`](./extension/README.md)。
-- **图标库选择**：后台编辑与扩展弹窗均内置图标选择器，除「自动获取」站点图标外，还可从 **Emoji**（Unicode 官方分组，1914 个，带中文名与关键词，支持**「字符 / 彩色」两种渲染样式**）与 **Bootstrap Icons**（官方 1.13.2，2078 个，29 个分类）中下拉选择。数据由 `tools/build-icon-library.mjs` 从上游生成（详见 [`extension/README.md`](./extension/README.md) 的「图标库数据」「第三方数据」小节），重新生成命令：`node tools/build-icon-library.mjs`。
-  - **图标体自托管**：单色图标与彩色 emoji 的 SVG 体**都落盘在本仓库** `public/icons/{bi,twemoji}/`（构建期从 `@iconify-json/bi@1.2.7`、`@iconify-json/twemoji@1.2.5` 生成，共 3992 个文件 / 约 4.4MB），运行时 URL 是我们自己域名的静态文件（`/icons/bi/<name>.svg`、`/icons/twemoji/<slug>.svg`），**没有任何外部 CDN 依赖**。彩色 emoji 在产物里只存 **slug**（由 CLDR 英文注释生成），URL 现拼，避免数据文件从 KB 级涨到 MB 级。⚠️ `public/icons/` 是**构建产物但必须随仓库提交**（部署要用）。
+- **图标库选择**：后台编辑与扩展弹窗均内置图标选择器，除「自动获取」站点图标外，还可从 **彩色 Emoji**（自托管的 Twemoji 图形，Unicode 官方分组 1914 个，带中文名与关键词，可直接搜索）中下拉选择。数据由 `tools/build-icon-library.mjs` 从上游生成（详见 [`extension/README.md`](./extension/README.md) 的「图标库数据」「第三方数据」小节），重新生成命令：`node tools/build-icon-library.mjs`。
+  - **图标体自托管**：彩色 emoji 的 SVG 体**落盘在本仓库** `public/icons/twemoji/`（构建期从 `@iconify-json/twemoji@1.2.5` 生成，共 1914 个文件 / 约 3.3MB），运行时 URL 是我们自己域名的静态文件（`/icons/twemoji/<slug>.svg`），**没有任何外部 CDN 依赖**。彩色 emoji 在产物里只存 **slug**（由 CLDR 英文注释生成），URL 现拼，避免数据文件从 KB 级涨到 MB 级。⚠️ `public/icons/` 是**构建产物但必须随仓库提交**（部署要用）。
   - **为什么不再用 Iconify 公共 API**：曾计划把宿主统一到 `https://api.iconify.design`，但实测它有约 **60 请求 / 5 分钟 / 每 IP** 的限额（两组独立测量互相印证）；选择器网格每批就是 120 个请求，一次即超额，429 的响应体不是图片 → `<img>` 被浏览器拒渲染（`ERR_BLOCKED_BY_ORB`），须等约 5 分钟回填。于是改为自托管，彻底离开运行时外部依赖。
-  - **深色主题反色**：单色图标集的 SVG 为 `fill="currentColor"`，而该值在 `<img src>` 中**恒为黑色**（与 `color-scheme` / `prefers-color-scheme` 无关），故 `public/styles.css` 与 `extension/popup.css` 各有一条 `:is(img[src*="bootstrap-icons"], img[src*="/icons/bi/"], img[src*="api.iconify.design"]:not([src*="/twemoji/"])) { filter: invert(1) }`。**必须用 URL 子串属性选择器**（`icon` 只是字符串，消费端拿不到类型信息）；要**同时覆盖历史 npmmirror 地址、历史 Iconify 地址与现行自托管路径**（存量数据仍可能是旧地址），并用 `:not()` **排除彩色 emoji**；**不可**对全部 `<img>` 反色（会毁掉 favicon / PNG logo / 彩色 emoji / data URI）。改样式前请先读 [`extension/README.md`](./extension/README.md) 的「深色主题下的图标反色」。
   - **数据源注意**：CLDR 的 key 不带变体选择符 U+FE0F（而 emoji 常带），需按基础码点建索引；中文名必须合并主注释与派生注释两个包（只用主包覆盖率仅 83%，缺的 326 条 —— 旗帜 262 + 卷发/红发等 ZWJ 组合 61 + 按键符号 3 —— 全在派生包；且两包外层结构不同，取值需兼容）；emoji 的 slug 由 CLDR **英文**注释按固定规则表生成。详见「生成时的五条硬约束」。
 - **响应式与毛玻璃视觉**：延续灰白极简风格与毛玻璃效果，在桌面与移动端均有优秀的浏览体验。
 
@@ -41,7 +40,7 @@
 │   ├── styles.css
 │   ├── simpage-logo.svg
 │   ├── data/                 # 静态数据（默认导航数据、城市列表、图标库 icon-library.json）
-│   ├── icons/                # 【构建产物，须提交】自托管图标体：bi/ 2078 个、twemoji/ 1914 个 SVG
+│   ├── icons/                # 【构建产物，须提交】自托管图标体：twemoji/ 1914 个 SVG
 │   └── scripts/              # 前台 / 后台脚本（含共用图标选择器 icon-picker.js）
 ├── tools/                    # 构建脚本（build-icon-library.mjs：生成图标库数据、自托管图标体与选择器产物）
 ├── edgeone.json              # EdgeOne Makers 项目配置

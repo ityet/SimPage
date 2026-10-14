@@ -49,28 +49,6 @@
 
     --shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
-
-  /* 单色图标（以 <img src> 渲染的 SVG）在深色下不可见：
-     单色集 SVG 是 fill="currentColor"，而在 <img src> 里 currentColor 恒为黑色，
-     与 color-scheme / prefers-color-scheme 无关，深色底上就整片黑了。
-     源色是纯黑，invert(1) 后即纯白，无需 hue-rotate。
-
-     覆盖范围（三种历史形态都要照顾）：
-     - bootstrap-icons        ：最早期的存量数据（旧 npmmirror 地址）；
-     - api.iconify.design/bi/ ：中间一版曾用的 Iconify 单色集（兼容存量数据）；
-     - /icons/bi/             ：**当前自托管**的 Bootstrap 图标路径（必须反色）；
-     - 用 :not() 排除彩色 emoji（/icons/twemoji/…、api.iconify.design/twemoji/…，反色就毁容了）。
-
-     用 URL 子串限定：icon 只是一条 URL 字符串，消费端拿不到类型信息，
-     这是唯一可靠且零数据改动的信号。⚠️ 新增单色集要登记进 :is()；绝不能对全部 <img> 反色
-     （favicon / logo / 彩色 emoji / data URI 会被毁）。 */
-  :is(
-    img[src*="bootstrap-icons"],
-    img[src*="/icons/bi/"],
-    img[src*="api.iconify.design"]:not([src*="/twemoji/"])
-  ) {
-    filter: invert(1);
-  }
 }
 
 * {

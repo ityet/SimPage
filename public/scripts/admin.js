@@ -579,12 +579,12 @@ function renderIconPreview(value) {
 }
 
 /**
- * 打开图标选择器（Emoji / Bootstrap 官方图标库），选中后写回输入框并刷新预览。
+ * 打开图标选择器（彩色 Emoji 图标库），选中后写回输入框并刷新预览。
  *
  * 数据按需 fetch `/data/icon-library.json`（绝对路径，与 admin.html 里 `/styles.css` 等风格一致）。
  * 加载中与失败态由组件内部处理（骨架屏 + 失败提示 + 重试），不会拖垮整个后台。
  *
- * `origin` 传当前站点 origin：数据里的 base 是路径（`/icons/bi/`），组件据此外拼绝对 URL 显示与入库。
+ * `origin` 传当前站点 origin：数据里的 base 是路径（`/icons/twemoji/`），组件据此外拼绝对 URL 显示与入库。
  */
 function openEditorIconPicker() {
   if (!modalIconInput) return;
@@ -1875,7 +1875,7 @@ function bindEvents() {
     });
   }
 
-  // 「选择图标」：从 Emoji / Bootstrap 图标库中挑选
+  // 「选择图标」：从彩色 Emoji 图标库中挑选
   const pickerIconButton = document.getElementById("picker-icon-button");
   if (pickerIconButton) {
     pickerIconButton.addEventListener("click", openEditorIconPicker);
