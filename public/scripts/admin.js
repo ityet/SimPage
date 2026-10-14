@@ -585,11 +585,14 @@ function renderIconPreview(value) {
  * 加载中与失败态由组件内部处理（骨架屏 + 失败提示 + 重试），不会拖垮整个后台。
  *
  * `origin` 传当前站点 origin：数据里的 base 是路径（`/icons/twemoji/`），组件据此外拼绝对 URL 显示与入库。
+ * `batchBase` 传批次目录：组件按屏 fetch `/data/emoji-batches/<n>.json` 并把图标体内联成 data URI，
+ * 首屏从 120 个图标请求降到 1 个。（不传也能从 libraryUrl 目录推导出来，这里显式写出以明依赖。）
  */
 function openEditorIconPicker() {
   if (!modalIconInput) return;
   openIconPicker({
     libraryUrl: "/data/icon-library.json",
+    batchBase: "/data/emoji-batches",
     layout: "modal",
     origin: location.origin,
     currentValue: modalIconInput.value.trim(),

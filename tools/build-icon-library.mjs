@@ -3,9 +3,12 @@
  * build-icon-library.mjs —— 生成 SimPage 的「图标库」数据与共用选择器组件。
  *
  * 产物：
- *   1. public/icons/twemoji/*.svg      —— **自托管图标体**（构建产物，需随仓库提交，部署要用）
- *   2. public/data/icon-library.json    —— 管理后台按需 fetch（与下面 .js 数据内容逐字节一致）
- *   3. extension/lib/icon-data.js        —— 扩展侧 import（MV3 弹窗不能跨域 fetch 站点资源）
+ *   1. public/icons/twemoji/*.svg         —— **自托管图标体**（构建产物，需随仓库提交，部署要用）
+ *   2. public/data/icon-library.json      —— 管理后台按需 fetch（与下面 .js 数据内容逐字节一致）
+ *   3. extension/lib/icon-data.js         —— 扩展侧 import（MV3 弹窗不能跨域 fetch 站点资源）
+ *   4. public/data/emoji-batches/*.json   —— **图标批次**：每 128 个图标一批，整批内联为 data URI
+ *   5. extension/lib/emoji-batches/*.json —— 批次随扩展包分发（内容与 4 逐字节一致）；
+ *                                            扩展页 fetch 自己的包内资源**同源，不需要 host 权限**。
  *   另会把 public/scripts/icon-picker.js 逐字节复制为 extension/lib/icon-picker.js。
  *
  * 说明：选择器只提供**彩色 Emoji**（Twemoji）；单色图标集（Bootstrap Icons）与「字符」样式已移除。
@@ -37,6 +40,16 @@
  *   - 彩色 emoji 数据里存的是「slug」而不是图标体本身：1700+ 条内联 SVG 会让**数据文件**从 KB 级
  *     膨胀到 MB 级（图标体已另存为独立文件，数据文件只留 slug），且扩展（MV3）无需跨域 fetch 也能由
  *     `styles[].base + slug + suffix` 现拼 URL。
+ *   - **图标批次（v5）**：每屏渲染 120 项，若逐项 `<img src="/icons/twemoji/x.svg">` 就是 120 个请求；
+ *     而 EdgeOne Makers 只走 **HTTP/1.1**（同域最多 6 并发），实测首屏 120 个请求要 4.4s 才全部解码、
+ *     重载后复访（静态资源带 `max-age=0,must-revalidate`）反而更慢到 8.4s。
+ *     因此把图标体按 128 个一批整包内联进 JSON，前端 `img.src = "data:image/svg+xml," + <encoded>`，
+ *     首屏就只剩 **1 个**请求（且浏览器按批次缓存，后续屏幕不再重复取图）。
+ *     编码选 `encodeURIComponent` 而不是 base64：实测 128 个 SVG 分别是 46100B（原文连缀）/
+ *     **49601B（encodeURIComponent）** / 63538B（base64）——base64 把文本变成随机字符后 brotli
+ *     反而压不动，比原文还大 38%（传输体积才是真实成本）。
+ *     ⚠️ 批次路径**不写进数据产物**（否则两份产物的 JSON 主体就不再逐字节一致），
+ *     由宿主用 `batchBase` 选项传入；扩展侧 path 来自 `chrome.runtime.getURL("lib/emoji-batches")`。
  *   - emoji 的 slug 复用 CLDR **英文**注释（Iconify 的 emoji 名就是它 kebab 化），不引入新依赖；
  *     一套 slug 可同时服务 twemoji / fluent-emoji-flat / noto（实测命名 100% 一致）。
  *   - CLDR 的 key 不带变体选择符 U+FE0F，而上游 emoji 字符串常常带 U+FE0F；
@@ -128,6 +141,19 @@ const PICKER_COPY = path.join(REPO_ROOT, "extension/lib/icon-picker.js");
 /** 自托管图标体根目录（构建产物，必须随仓库提交） */
 const ICONS_DIR = path.join(REPO_ROOT, "public/icons");
 const ICONS_TWEMOJI_DIR = path.join(ICONS_DIR, "twemoji");
+
+/**
+ * 图标批次的批次大小。
+ * ⚠️ 必须与数据产物里的 `emoji.batching.size` 一致，也必须与选择器的「全局下标 → 批次」换算一致
+ * （前端用 `floor(全局下标 / size)` 定位批次、`% size` 定位批内偏移）。改这里要同步改选择器注释。
+ */
+const BATCH_SIZE = 128;
+/** 数据产物版本。v5：emoji 渲染改为「按批次内联 data URI」（v4 起只提供彩色 Emoji）。 */
+const LIBRARY_VERSION = 5;
+/** 站点侧批次目录（构建产物，必须随仓库提交，部署要用） */
+const OUT_BATCH_SITE = path.join(REPO_ROOT, "public/data/emoji-batches");
+/** 扩展侧批次目录（构建产物，随扩展包分发） */
+const OUT_BATCH_EXT = path.join(REPO_ROOT, "extension/lib/emoji-batches");
 
 /** 生成产物顶部的「请勿手工修改」横幅（两行，供自检时整体剥离） */
 const GENERATED_BANNER_JS =
@@ -611,6 +637,8 @@ function buildEmoji(groups, annotations, derivedAnnotations, enAnnotations, enDe
 const GENERATED_NOTE =
   "本文件由 tools/build-icon-library.mjs 生成，请勿手工修改；重新生成：node tools/build-icon-library.mjs。" +
   "本图标库只提供**彩色 Emoji**（Twemoji）。" +
+  `v5：图标体按 emoji.batching.size=${BATCH_SIZE} 个一批整包内联为 data URI，` +
+  "前端每屏只需 1 个请求（批次路径由宿主用 batchBase 传入，不写在本文件里）。" +
   "上游数据与许可：" +
   `图标体**自托管**于 public/icons/twemoji/（由 @iconify-json/twemoji@${TW_JSON_VERSION} 生成，运行时无外部 CDN 依赖）；` +
   `unicode-emoji-json@${EMOJI_JSON_VERSION}（MIT）；` +
@@ -623,6 +651,7 @@ const JS_DATA_BANNER =
   " * 由 tools/build-icon-library.mjs 生成；数据与 public/data/icon-library.json 完全一致。\n" +
   " *\n" +
   " * 本图标库只提供**彩色 Emoji**（Twemoji）。\n" +
+  ` * v5：图标体按 ${BATCH_SIZE} 个一批内联为 data URI（见 emoji.batching），前端每屏只需 1 个请求。\n` +
   " * 上游数据与许可：\n" +
   ` *   - @iconify-json/twemoji@${TW_JSON_VERSION}         彩色 emoji 体 CC-BY-4.0       © Twitter, Inc. and contributors（Twemoji fork v${TWEMOJI_VERSION}，已落盘为 public/icons/twemoji/）\n` +
   ` *   - unicode-emoji-json@${EMOJI_JSON_VERSION}          emoji 分组与英文名  MIT\n` +
@@ -659,6 +688,103 @@ function copyIconPicker() {
     throw new Error("extension/lib/icon-picker.js 去掉横幅后与源文件不一致");
   }
   return { bytes: Buffer.byteLength(written), sourceBytes: Buffer.byteLength(source) };
+}
+
+/**
+ * 生成「图标批次」文件：把图标体按 `BATCH_SIZE` 个一批，整批内联成一个 JSON 数组。
+ *
+ * 动机：前端每屏渲染 120 项，逐项 `<img src="/icons/twemoji/x.svg">` 就是 120 个请求；
+ * 而 EdgeOne Makers 只走 HTTP/1.1（同域最多 6 并发），实测首屏要 4.4s 才全部解码。
+ * 内联后前端 `img.src = "data:image/svg+xml," + <encoded>`，首屏只剩 1 个请求。
+ *
+ * 编码选 `encodeURIComponent`：实测 128 个 SVG 为 46100B（原文）/ 49601B（encodeURIComponent）/
+ * 63538B（base64）；base64 把文本变成随机字符后 brotli 压不动，比原文还大。
+ * 注意属性值里的 `#` 会被编码成 `%23`，正好补上 data URI 里 `#` 会被当片段标识符的坑。
+ *
+ * ⚠️ 两处产物（public/data/emoji-batches 与 extension/lib/emoji-batches）必须**逐字节一致**；
+ * ⚠️ 批次顺序必须与 `emoji.groups` 展平后的顺序完全一致——前端按下标定位：
+ *   批次号 = `floor(全局下标 / BATCH_SIZE)`，批内偏移 = `全局下标 % BATCH_SIZE`。
+ *
+ * @param {Array<{name: string, svg: string}>} files 图标体，顺序必须 = 全部 emoji 的展平顺序
+ * @returns {{count: number, bytes: number, removed: number, lastSize: number}}
+ */
+function writeBatches(files) {
+  const batches = [];
+  for (let i = 0; i < files.length; i += BATCH_SIZE) {
+    batches.push(files.slice(i, i + BATCH_SIZE).map((file) => encodeURIComponent(file.svg)));
+  }
+  ensureDir(OUT_BATCH_SITE);
+  ensureDir(OUT_BATCH_EXT);
+
+  let bytes = 0;
+  for (let i = 0; i < batches.length; i += 1) {
+    // 不加多余空白：数组形状与前端 decode 后按下标取值的方式一一对应
+    const text = `${JSON.stringify(batches[i])}\n`;
+    fs.writeFileSync(path.join(OUT_BATCH_SITE, `${i}.json`), text, "utf8");
+    fs.writeFileSync(path.join(OUT_BATCH_EXT, `${i}.json`), text, "utf8");
+    bytes += Buffer.byteLength(text);
+  }
+
+  // 清掉上一轮遗留的多余文件（批次数变少时旧文件不会被覆盖，会变成"孤儿"被打包/部署）
+  const expected = new Set(batches.map((_, i) => `${i}.json`));
+  let removed = 0;
+  for (const dir of [OUT_BATCH_SITE, OUT_BATCH_EXT]) {
+    for (const entry of fs.readdirSync(dir)) {
+      if (!entry.endsWith(".json") || expected.has(entry)) continue;
+      fs.unlinkSync(path.join(dir, entry));
+      removed += 1;
+    }
+  }
+
+  return {
+    count: batches.length,
+    bytes,
+    removed,
+    lastSize: batches.length > 0 ? batches[batches.length - 1].length : 0,
+  };
+}
+
+/**
+ * 自检「图标批次」：两处目录逐字节一致 + 每条 decode 后与图标体逐字节一致 + 顺序正确。
+ *
+ * 刻意**独立重算**一遍（按全局下标顺序从 `files` 取，而不是复用 writeBatches 的中间结果），
+ * 避免「写的时候算错、检查的时候用同一份算错的中间值」这种自证式通过。
+ *
+ * @param {Array<{name: string, svg: string}>} files
+ * @param {{count: number}} info
+ */
+function verifyBatches(files, info) {
+  let byteDiff = 0;
+  let notEncoded = 0;
+  let mismatch = 0;
+  let decodedCount = 0;
+  const mismatched = [];
+
+  for (let b = 0; b < info.count; b += 1) {
+    const name = `${b}.json`;
+    const siteText = fs.readFileSync(path.join(OUT_BATCH_SITE, name), "utf8");
+    const extText = fs.readFileSync(path.join(OUT_BATCH_EXT, name), "utf8");
+    if (siteText !== extText) byteDiff += 1;
+    const batch = JSON.parse(siteText);
+    for (let i = 0; i < batch.length; i += 1) {
+      const encoded = batch[i];
+      const globalIndex = b * BATCH_SIZE + i;
+      if (typeof encoded !== "string" || !encoded.startsWith("%3C")) notEncoded += 1;
+      if (decodeURIComponent(encoded) !== files[globalIndex].svg) {
+        mismatch += 1;
+        if (mismatched.length < 5) mismatched.push(`${b}.json[${i}]`);
+      }
+      decodedCount += 1;
+    }
+  }
+
+  if (byteDiff !== 0) throw new Error(`站点与扩展两处批次目录有 ${byteDiff} 个文件不一致。`);
+  if (notEncoded !== 0) throw new Error(`有 ${notEncoded} 条不是 encodeURIComponent 形式（期望以 %3C 开头，即 "<svg"）。`);
+  if (mismatch !== 0) throw new Error(`有 ${mismatch} 条 decode 后与图标体不一致：${mismatched.join(",")}`);
+  if (decodedCount !== files.length) {
+    throw new Error(`批次条目总数 ${decodedCount} ≠ 图标体总数 ${files.length}。`);
+  }
+  return { decodedCount };
 }
 
 // =====================================================================================
@@ -738,11 +864,17 @@ async function main() {
   });
   const twWrite = writeIconFiles(ICONS_TWEMOJI_DIR, twemojiFiles);
 
+  /**
+   * 批次数由图标体总数决定；写进产物供选择器换算（`emoji.batching`）。
+   * 注意这里只写 size/count 两个数字，**不写路径**——路径由宿主用 batchBase 传。
+   */
+  const batchCount = Math.ceil(allEmoji.length / BATCH_SIZE);
+
   /** @type {object} */
   const library = {
     // 出处 / 许可 / 重生成说明写在合法字段里（JSON 不允许注释）
     _generated: GENERATED_NOTE,
-    version: 4,
+    version: LIBRARY_VERSION,
     emoji: {
       sources: [
         `unicode-emoji-json@${EMOJI_JSON_VERSION} (MIT)`,
@@ -751,6 +883,8 @@ async function main() {
         `CLDR en 注释 → emoji 名（slug）；彩色图形取自 @iconify-json/twemoji@${TW_JSON_VERSION}（Twemoji fork v${TWEMOJI_VERSION}，CC-BY 4.0），自托管于 ${EMOJI_STYLES[0].base}`,
       ],
       styles: EMOJI_STYLES,
+      // 图标批次声明：只有尺寸与数量，**路径不写进产物**（否则两份产物主体就无法逐字节一致）
+      batching: { size: BATCH_SIZE, count: batchCount },
       groups: emoji.groups,
     },
   };
@@ -767,6 +901,10 @@ async function main() {
   fs.writeFileSync(OUT_EMOJI_JS, jsText, "utf8");
 
   const pickerCopy = copyIconPicker();
+
+  // 3b. 落盘图标批次：站点与扩展两处，内容逐字节一致。
+  //     放在数据产物之后写，但批次数已在上面算好并写进 emoji.batching。
+  const batchWrite = writeBatches(twemojiFiles);
 
   // 4. 统计与自检
   log("\n================ 统计 ================");
@@ -785,6 +923,11 @@ async function main() {
   log(`选择器组件拷贝：extension/lib/icon-picker.js = ${pickerCopy.bytes}B（源 ${pickerCopy.sourceBytes}B）`);
   log(
     `自托管图标体：public/icons/twemoji/ = ${twWrite.count} 个（${(twWrite.bytes / 1024).toFixed(1)}KB，平均 ${twWrite.avg}B）`,
+  );
+  log(
+    `图标批次：${batchWrite.count} 个文件（每批 ${BATCH_SIZE} 个，末批 ${batchWrite.lastSize} 个），` +
+      `站点侧合计 ${(batchWrite.bytes / 1024).toFixed(0)}KB（均 ${(batchWrite.bytes / batchWrite.count / 1024).toFixed(0)}KB）` +
+      `${batchWrite.removed ? `；清理多余旧文件 ${batchWrite.removed} 个` : ""}`,
   );
 
   log("\n================ 抽检（人工目视） ================");
@@ -870,6 +1013,23 @@ async function main() {
     log(`  ✓ ${label} ${path.basename(file)} viewBox = ${actual}`);
   }
   log(`✅ 自检：${viewBoxCases.length} 条 viewBox 定点抽检全部通过`);
+
+  // 9. 自检：图标批次（两处逐字节一致 + decode 后与图标体逐字节一致 + 顺序 = 展平顺序）
+  log("\n================ 自检（图标批次） ================");
+  const batchVerify = verifyBatches(twemojiFiles, batchWrite);
+  log(
+    `✅ 自检：public/data/emoji-batches/ 与 extension/lib/emoji-batches/ 各 ${batchWrite.count} 个文件、逐字节一致`,
+  );
+  log(
+    `✅ 自检：${batchVerify.decodedCount} 条全部 decode 后与图标体逐字节一致，且顺序 = emoji.groups 展平顺序 ` +
+      `（前端按 floor(全局下标 / ${BATCH_SIZE}) 取批次、% ${BATCH_SIZE} 取批内偏移）`,
+  );
+  log(`✅ 自检：数据产物里的 emoji.batching = size ${BATCH_SIZE} / count ${batchCount}（与落盘批次数一致）`);
+  // 反向断言：批次路径一旦被写进产物，两份产物的 JSON 主体就会带上只有一边合理的路径。
+  if (jsonText.includes("emoji-batches")) {
+    throw new Error("数据产物里出现了批次路径字面量「emoji-batches」——路径必须由宿主 batchBase 传入。");
+  }
+  log("✅ 自检：数据产物不含批次路径字面量「emoji-batches」（路径由宿主 batchBase 传入）");
 
   log("\n================ 抽检：icon 文件前 120 字符（人工目视） ================");
   const sampleFiles = [

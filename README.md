@@ -19,6 +19,10 @@
 - **浏览器扩展**：`extension/` 内置 Chrome/Edge 扩展（Manifest V3），点一下工具栏图标即可把当前网页存为书签，自动带出标题、地址与图标。详见 [`extension/README.md`](./extension/README.md)。
 - **图标库选择**：后台编辑与扩展弹窗均内置图标选择器，除「自动获取」站点图标外，还可从 **彩色 Emoji**（自托管的 Twemoji 图形，Unicode 官方分组 1914 个，带中文名与关键词，可直接搜索）中下拉选择。数据由 `tools/build-icon-library.mjs` 从上游生成（详见 [`extension/README.md`](./extension/README.md) 的「图标库数据」「第三方数据」小节），重新生成命令：`node tools/build-icon-library.mjs`。
   - **图标体自托管**：彩色 emoji 的 SVG 体**落盘在本仓库** `public/icons/twemoji/`（构建期从 `@iconify-json/twemoji@1.2.5` 生成，共 1914 个文件 / 约 3.3MB），运行时 URL 是我们自己域名的静态文件（`/icons/twemoji/<slug>.svg`），**没有任何外部 CDN 依赖**。彩色 emoji 在产物里只存 **slug**（由 CLDR 英文注释生成），URL 现拼，避免数据文件从 KB 级涨到 MB 级。⚠️ `public/icons/` 是**构建产物但必须随仓库提交**（部署要用）。
+  - **图标批次（v5，首屏提速的关键）**：选择器每屏渲染 120 项，若逐项请求 `/icons/twemoji/x.svg` 就是 **120 个请求**；而 EdgeOne Makers **只走 HTTP/1.1**（同域最多 6 并发），实测首屏要 4.4s 才全部解码、重载后复访（静态资源带 `max-age=0,must-revalidate`）反而更慢到 8.4s。因此构建期把图标体按 **128 个一批**整包内联成 `public/data/emoji-batches/<n>.json`，选择器只取当前屏需要的那一批，用 `data:image/svg+xml,<encodeURIComponent(svg)>` 喂给 `<img>` —— 首屏从 120 个请求降到 **1 个**，且浏览器按批次缓存，往下滚才按需补拉。
+    - 为什么是 `encodeURIComponent` 而不是 base64：整批传输体积才是成本。实测 `0.json` 226KB → gzip **47.9KB（21%）**；而 120 个独立 SVG 单文件 gzip 率是 **64%**（小文件拿不到共享字典）→ 合并后传输体积约减半。base64 还会把文本变成随机字符，brotli 压不动。
+    - ⚠️ 批次**路径刻意不写进数据产物**（写了 `public/data/icon-library.json` 与 `extension/lib/icon-data.js` 的 JSON 主体就不再逐字节一致），由宿主用 `batchBase` 传入；缺省会从 `libraryUrl` 的目录推导。扩展侧传 `chrome.runtime.getURL("lib/emoji-batches")`（批次随扩展包分发，扩展页 fetch 自己的资源**同源，无需 host 权限**）。
+    - 数据无 `emoji.batching`（老产物）或拿不到 `batchBase` 时**自动退回**逐图 URL，不会空白。
   - **为什么不再用 Iconify 公共 API**：曾计划把宿主统一到 `https://api.iconify.design`，但实测它有约 **60 请求 / 5 分钟 / 每 IP** 的限额（两组独立测量互相印证）；选择器网格每批就是 120 个请求，一次即超额，429 的响应体不是图片 → `<img>` 被浏览器拒渲染（`ERR_BLOCKED_BY_ORB`），须等约 5 分钟回填。于是改为自托管，彻底离开运行时外部依赖。
   - **数据源注意**：CLDR 的 key 不带变体选择符 U+FE0F（而 emoji 常带），需按基础码点建索引；中文名必须合并主注释与派生注释两个包（只用主包覆盖率仅 83%，缺的 326 条 —— 旗帜 262 + 卷发/红发等 ZWJ 组合 61 + 按键符号 3 —— 全在派生包；且两包外层结构不同，取值需兼容）；emoji 的 slug 由 CLDR **英文**注释按固定规则表生成。详见「生成时的五条硬约束」。
 - **响应式与毛玻璃视觉**：延续灰白极简风格与毛玻璃效果，在桌面与移动端均有优秀的浏览体验。
@@ -40,9 +44,10 @@
 │   ├── styles.css
 │   ├── simpage-logo.svg
 │   ├── data/                 # 静态数据（默认导航数据、城市列表、图标库 icon-library.json）
+│   │   └── emoji-batches/    # 【构建产物，须提交】图标批次：15 个 JSON，每批 128 个图标整包内联为 data URI
 │   ├── icons/                # 【构建产物，须提交】自托管图标体：twemoji/ 1914 个 SVG
 │   └── scripts/              # 前台 / 后台脚本（含共用图标选择器 icon-picker.js）
-├── tools/                    # 构建脚本（build-icon-library.mjs：生成图标库数据、自托管图标体与选择器产物）
+├── tools/                    # 构建脚本（build-icon-library.mjs：生成图标库数据、自托管图标体、图标批次与选择器产物）
 ├── edgeone.json              # EdgeOne Makers 项目配置
 ├── extension/                # Chrome / Edge 浏览器扩展（Manifest V3，不参与站点部署）
 ├── .env.example              # 环境变量示例（KV 非环境变量，见文件内说明）

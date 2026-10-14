@@ -241,10 +241,14 @@ function openPicker() {
   pickerHandle = openIconPicker({
     // 扩展侧直接传入打包好的数据（MV3 弹窗不能跨域 fetch 站点资源）
     library: ICON_LIBRARY,
+    // 批次目录指向扩展**自己包内**：扩展页 fetch 自己的资源是同源，不需要任何 host 权限。
+    // 必须用 runtime.getURL 拼绝对路径 —— 扩展页里相对路径会解析成扩展自身 origin 而取不到。
+    batchBase: chrome.runtime.getURL("lib/emoji-batches"),
     layout: "panel",
     container: els.pickerHost,
     // 图标体自托管在站点上（base 是路径），扩展页没有可用的 location.origin，
     // 必须用用户配置的站点地址拼绝对 URL，否则相对路径会解析成扩展自身 origin 而裂图。
+    // ⚠️ 这里只影响**入库值**；<img src> 显示用的是批次内联的 data URI，不走网络。
     origin: state.siteUrl,
     currentValue: els.icon.value.trim(),
     title: "选择图标",

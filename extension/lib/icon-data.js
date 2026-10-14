@@ -3,6 +3,7 @@
  * 由 tools/build-icon-library.mjs 生成；数据与 public/data/icon-library.json 完全一致。
  *
  * 本图标库只提供**彩色 Emoji**（Twemoji）。
+ * v5：图标体按 128 个一批内联为 data URI（见 emoji.batching），前端每屏只需 1 个请求。
  * 上游数据与许可：
  *   - @iconify-json/twemoji@1.2.5         彩色 emoji 体 CC-BY-4.0       © Twitter, Inc. and contributors（Twemoji fork v16.0.1，已落盘为 public/icons/twemoji/）
  *   - unicode-emoji-json@0.9.0          emoji 分组与英文名  MIT
@@ -12,8 +13,8 @@
  * 修改数据请改 tools/build-icon-library.mjs 后重新生成，不要直接编辑本文件。
  */
 export const ICON_LIBRARY = {
-  "_generated": "本文件由 tools/build-icon-library.mjs 生成，请勿手工修改；重新生成：node tools/build-icon-library.mjs。本图标库只提供**彩色 Emoji**（Twemoji）。上游数据与许可：图标体**自托管**于 public/icons/twemoji/（由 @iconify-json/twemoji@1.2.5 生成，运行时无外部 CDN 依赖）；unicode-emoji-json@0.9.0（MIT）；cldr-annotations-full@48.2.0 与 cldr-annotations-derived-full@48.2.0（Unicode License，中英文注释）；Twemoji graphics CC-BY 4.0 © Twitter, Inc. and contributors。",
-  "version": 4,
+  "_generated": "本文件由 tools/build-icon-library.mjs 生成，请勿手工修改；重新生成：node tools/build-icon-library.mjs。本图标库只提供**彩色 Emoji**（Twemoji）。v5：图标体按 emoji.batching.size=128 个一批整包内联为 data URI，前端每屏只需 1 个请求（批次路径由宿主用 batchBase 传入，不写在本文件里）。上游数据与许可：图标体**自托管**于 public/icons/twemoji/（由 @iconify-json/twemoji@1.2.5 生成，运行时无外部 CDN 依赖）；unicode-emoji-json@0.9.0（MIT）；cldr-annotations-full@48.2.0 与 cldr-annotations-derived-full@48.2.0（Unicode License，中英文注释）；Twemoji graphics CC-BY 4.0 © Twitter, Inc. and contributors。",
+  "version": 5,
   "emoji": {
     "sources": [
       "unicode-emoji-json@0.9.0 (MIT)",
@@ -30,6 +31,10 @@ export const ICON_LIBRARY = {
         "license": "Twemoji graphics CC-BY 4.0 © Twitter, Inc. and contributors"
       }
     ],
+    "batching": {
+      "size": 128,
+      "count": 15
+    },
     "groups": [
       {
         "id": "smileys-emotion",

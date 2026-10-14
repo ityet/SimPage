@@ -49,8 +49,12 @@ Manifest V3，无构建步骤，纯静态文件。
 ### 彩色 Emoji（Twemoji）
 
 - 渲染**自托管的 Twemoji SVG**，选中后写入 `<站点 origin>/icons/twemoji/rocket.svg` —— 各平台外观一致、彩色；由本站自托管，无第三方依赖。
-- 图标体**自托管**在本仓库 `public/icons/twemoji/<slug>.svg`；产物里**只存 slug**（`rocket`），URL 由 `styles[].base + slug + suffix` 现拼 —— 若把 1914 个图标体内联进 `extension/lib/icon-data.js`，数据文件会从 KB 级膨胀到 MB 级（扩展侧也不需要跨域 fetch）。
-- 图片加载失败时该格子**回退渲染字符本身**，不会出现裂图。
+  - ⚠️ **显示与入库是两回事**：网格里的 `<img src>` 用的是**批次内联的 data URI**（见下「图标批次」），而写进输入框 / 数据库的**入库值**始终是上面那个**绝对 URL**（数据库与导航页都按 URL 渲染）。把 data URI 写进配置会让导航页存下整份 SVG。
+- 图标体**自托管**在本仓库 `public/icons/twemoji/<slug>.svg`；产物里**只存 slug**（`rocket`），入库 URL 由 `styles[].base + slug + suffix` 现拼 —— 若把 1914 个图标体内联进 `extension/lib/icon-data.js`，该数据文件会从 KB 级膨胀到 MB 级，且它每次打开选择器都要整份解析。
+- **图标批次（v5）**：网格每屏渲染 120 项，逐项请求 SVG 就是 120 个请求；扩展与站点同受 HTTP/1.1 同域 6 并发限制。因此图标体改为按 **128 个一批**整包内联成 `extension/lib/emoji-batches/<n>.json`，选择器只取当前屏那一批，用 `data:image/svg+xml,<encodeURIComponent(svg)>` 直接喂给 `<img>` —— **首屏从 120 个请求降到 1 个**，其余批次滚动到才拉。
+  - 扩展侧的批次**随包分发**：`chrome.runtime.getURL("lib/emoji-batches")` 是本扩展自己的资源，扩展页 fetch 自己的资源**同源，不需要任何 host 权限**（这也是不改成「去站点取批次」的原因 —— 那要申请站点域名的 host 权限）。
+  - 代价：扩展包因此**增大约 4.2MB**（压缩进 zip 后约 0.7MB）。这是「首屏请求数」与「包体」的取舍，选前者是因为 240 个请求在 HTTP/1.1 下实测要 4~8 秒，而批次文件走同一连接只需 1 次往返。
+- 图片加载失败时该格子**回退渲染字符本身**，不会出现裂图（批次缺位时也会先退回逐图 URL，再退化到字符）。
 - ⚠️ **Twemoji 图形许可是 CC-BY 4.0（需署名）**，见「第三方数据」。
 - 为什么选 Twemoji：见「为什么是 Twemoji（以及为什么不做 Emoji 17.0）」。
 
@@ -58,19 +62,22 @@ Manifest V3，无构建步骤，纯静态文件。
 
 - 数据文件：`extension/lib/icon-data.js`（扩展侧 `import`）+ `public/data/icon-library.json`（网页后台按需 `fetch`），**两者数据完全一致**。
 - 图标体文件：`public/icons/twemoji/<slug>.svg`（1914 个），**自托管、须随仓库提交**（部署要用）。
+- 图标批次文件：`public/data/emoji-batches/<n>.json`（站点）+ `extension/lib/emoji-batches/<n>.json`（扩展），
+  共 **15 个**（`0.json`…`14.json`，每批 128 个、末批 122 个），**两处内容逐字节一致**，都是**生成产物、须随仓库提交**。
 - 上游：Unicode 官方 emoji 分组（1914 个），CLDR 中英文注释（中文名 / 关键词 / emoji 英文名 → slug），**图标体由 `@iconify-json/twemoji@1.2.5` 生成并落盘自托管**。
-- 产物结构（`version: 4`）：
+- 产物结构（`version: 5`）：
 
   ```jsonc
   {
     "_generated": "……出处与许可（JSON 不能写注释，故用合法字段）",
-    "version": 4,
+    "version": 5,
     "emoji": {
       "sources": ["…"],
       "styles": [
         { "id": "twemoji", "label": "彩色", "base": "/icons/twemoji/",
           "suffix": ".svg", "license": "Twemoji graphics CC-BY 4.0 © Twitter, Inc. and contributors" }
       ],
+      "batching": { "size": 128, "count": 15 },
       "groups": [{ "id": "smileys-emotion", "label": "表情与情绪",
                    "items": [["🚀", "火箭", "火箭 发射 太空 旅行", "rocket"], "…"] }]
     }
@@ -78,9 +85,11 @@ Manifest V3，无构建步骤，纯静态文件。
   ```
 
   - ⚠️ **`base` 是路径**（`/icons/twemoji/`），**不是绝对 URL**：站点可能部署在任意域名，扩展里的站点地址也是用户可配的，构建期写死域名会让换域名后图标全挂。消费端用自己知道的 origin 拼出绝对 URL（`icon-picker.js` 的 `origin` 参数）。
+  - ⚠️ **`batching` 只有 `size` / `count` 两个数字，刻意不含路径**：一含路径，`public/data/icon-library.json` 与 `extension/lib/icon-data.js` 的 JSON 主体就会带上「只有一边合理」的值，而这两份产物必须**逐字节一致**。路径由宿主用 `batchBase` 选项传入（站点传 `/data/emoji-batches`，扩展传 `chrome.runtime.getURL("lib/emoji-batches")`）。
   - emoji 每条是**四元组** `[emoji, 中文名, 关键词, slug]`；`slug` 是 Iconify 的 emoji 名（见下），也是 `public/icons/twemoji/<slug>.svg` 的文件名。
+  - 批次按 `emoji.groups` **展平后的顺序**每 128 个切一片，所以「全局下标 → 批次」的换算是固定公式：批次号 = `floor(全局下标 / size)`、批内偏移 = `全局下标 % size`。**改这个口径必须同时改构建脚本与选择器**，否则图标会错位（脚本与选择器两侧各有断言/注释钉住）。
   - `styles` 是**数据驱动**的：选择器只认带 `base` 的样式，当前只有一条彩色样式；将来加彩色集（fluent / noto）只需在产物里加一条。
-- ⚠️ **数据文件只存 slug，不内联图标体**：图标体已另存为 `public/icons/` 下的独立文件；把 1914+ 个 SVG 内联进 `extension/lib/icon-data.js` 会让数据文件从 KB 级涨到 MB 级（MV3 弹窗也不能跨域 fetch）。
+- ⚠️ **数据文件只存 slug，不内联图标体**：图标体另存为 `public/icons/` 下的独立文件，批次另存为 `emoji-batches/` 下的独立文件。**这么做是为了让数据文件保持 KB 级** —— 它每次打开选择器都要整份解析，把图标体塞进去会让首屏多等一份 MB 级解析；而图标体只在需要时按批取用。
 
 ### 为什么自托管（以及为什么不用 Iconify 公共 API）
 
@@ -105,17 +114,19 @@ node tools/build-icon-library.mjs --offline  # 纯离线（缺缓存即报错；
 env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy node tools/build-icon-library.mjs
 ```
 
-- 该脚本同时生成：`public/icons/twemoji/*.svg`（自托管图标体）、`public/data/icon-library.json`、`extension/lib/icon-data.js`，并把 `public/scripts/icon-picker.js` 逐字节复制为 `extension/lib/icon-picker.js`。
-- ⚠️ **`public/icons/`、`extension/lib/icon-data.js` 与 `extension/lib/icon-picker.js` 都是生成产物，请勿手改**：改数据改 `tools/build-icon-library.mjs`，改组件改 `public/scripts/icon-picker.js`，改完都要重跑脚本。**`public/icons/` 虽是产物但必须随仓库提交**（部署要用，且**不要**写进 `.gitignore`）。
-- ⚠️ **图标体落盘前会先清空 `public/icons/twemoji/` 再写**（防止图标名变动后残留陈旧文件）；清空前脚本会**断言目标路径确实在仓库的 `public/icons/` 之下**，避免路径写错时误删他处。
+- 该脚本同时生成：`public/icons/twemoji/*.svg`（自托管图标体）、`public/data/icon-library.json`、`extension/lib/icon-data.js`、`public/data/emoji-batches/*.json` 与 `extension/lib/emoji-batches/*.json`（图标批次，两处逐字节一致），并把 `public/scripts/icon-picker.js` 逐字节复制为 `extension/lib/icon-picker.js`。
+- ⚠️ **`public/icons/`、`public/data/emoji-batches/`、`extension/lib/emoji-batches/`、`extension/lib/icon-data.js` 与 `extension/lib/icon-picker.js` 都是生成产物，请勿手改**：改数据改 `tools/build-icon-library.mjs`，改组件改 `public/scripts/icon-picker.js`，改完都要重跑脚本。**`public/icons/` 与 `public/data/emoji-batches/` 虽是产物但必须随仓库提交**（部署要用，且**不要**写进 `.gitignore`）。
+- ⚠️ **图标体落盘前会先清空 `public/icons/twemoji/` 再写**（防止图标名变动后残留陈旧文件）；清空前脚本会**断言目标路径确实在仓库的 `public/icons/` 之下**，避免路径写错时误删他处。批次目录同样会在写入后**清掉多余的旧 `<n>.json`**（批次数变少时否则会留下孤儿文件被打包/部署）。
 - 脚本会把 `public/scripts/icon-picker.js` 逐字节复制到 `extension/lib/icon-picker.js`（只加两行横幅），并在复制后**断言**去掉横幅的内容与源文件一致，不一致直接抛错。
-- 脚本自带断言（任一失败即退出码非 0）：JSON 严格合法、两份产物主体逐字节一致、每条 emoji 有非空 slug 且唯一数 = 1914、中文名覆盖率 ≥ 95%、5 条 `emojiSlug` 单元用例；以及**本地**图标体完整性校验——`public/icons/twemoji/` 恰好 1914 个、与 slug 集合一一对应（无多无缺）、每个文件非空且以 `<svg` 开头、以 `</svg>` 结尾、**`viewBox="0 0 <正数> <正数>"`（数值必须存在且为正数：Iconify 集级与图标级都可能未声明尺寸时缺省为 36×36，漏了会写成 `viewBox="0 0 undefined undefined"` → 浏览器按 0×0 渲染 → 图标不可见）**，并汇总总体积与平均大小、抽 3 个文件打印前 120 字符。
+- 脚本自带断言（任一失败即退出码非 0）：JSON 严格合法、两份产物主体逐字节一致、**数据产物不含批次路径字面量**、每条 emoji 有非空 slug 且唯一数 = 1914、中文名覆盖率 ≥ 95%、5 条 `emojiSlug` 单元用例；以及**本地**图标体完整性校验——`public/icons/twemoji/` 恰好 1914 个、与 slug 集合一一对应（无多无缺）、每个文件非空且以 `<svg` 开头、以 `</svg>` 结尾、**`viewBox="0 0 <正数> <正数>"`（数值必须存在且为正数：Iconify 集级与图标级都可能未声明尺寸时缺省为 36×36，漏了会写成 `viewBox="0 0 undefined undefined"` → 浏览器按 0×0 渲染 → 图标不可见）**，并汇总总体积与平均大小、抽 3 个文件打印前 120 字符。
   - 另有一条**例外白名单**断言：全量 1914 个文件里「非整数 viewBox」只允许 1 个例外 —— 上游自带的 `twemoji/watermelon.svg`（Iconify 给它 `height: 25.22`）。要改它就会与上游快照逐字节比对失败，所以保留并把例外钉死，反而能立刻暴露「误写小数 / 上游新增异常尺寸」。
   - 另有 2 条 **viewBox 定点抽检**（回归用）：`twemoji/grinning-face.svg`、`twemoji/flag-china.svg` = `0 0 36 36`。
+  - 另有 4 条**图标批次自检**：两处批次目录（站点 / 扩展）逐字节一致；每条都是 `encodeURIComponent` 形态（以 `%3C` 开头，即 `<svg`）；每条 **decode 后与图标体逐字节一致**；条目总数 = 1914。校验时**刻意按全局下标重新从 `files` 取一份独立重算**，不复用写入时的中间结果 —— 避免「写的时候算错、检查时拿同一份算错的中间值」这种自证式通过。
   - ℹ️ 这些校验**全是本地文件读取、不联网**：比旧的联网直链抽检更快、不受任何限流影响，也不会再把用户 IP 的额度打空（旧版结尾那 60 个联网抽检会把额度打空 → 紧接着刷新页面满屏裂图，这是自我伤害，现已消除）。
 - ℹ️ **比字节时的坑**：JSON 产物按 POSIX 习惯写成 `body + "\n"`（尾带换行），JS 产物主体是 `export const … = body;`（无尾换行），所以两个文件的**字节数天然差 1**；余下的差值是注释横幅与 export 包装。比「两份数据一致」时请 **trimEnd 后比 JSON 主体，或直接比 `JSON.parse` 后的对象**，不要比整个文件字节 —— 否则会得到一条假失败。
-- ℹ️ 当前体量（version 4）：`public/icons/twemoji/` 共 **1914 个文件 / 约 3.3MB**（文件内容字节和 3,418,149B，平均 1786B/文件）。⚠️ 这个数是**文件内容的字节和**；`du -sh` 会因每个小文件占满 4KB 磁盘块而明显偏大。数据文件 `public/data/icon-library.json` ≈ **292KB**、`extension/lib/icon-data.js` ≈ **293KB**、`extension/lib/icon-picker.js` ≈ **30KB**。
+- ℹ️ 当前体量（version 5）：`public/icons/twemoji/` 共 **1914 个文件 / 约 3.3MB**（文件内容字节和 3,418,149B，平均 1786B/文件）。⚠️ 这个数是**文件内容的字节和**；`du -sh` 会因每个小文件占满 4KB 磁盘块而明显偏大。数据文件 `public/data/icon-library.json` ≈ **286KB**、`extension/lib/icon-data.js` ≈ **287KB**、`extension/lib/icon-picker.js` ≈ **41KB**、图标批次每处 **15 个文件 / 约 4.2MB**（站点 + 扩展各一份）。
   - ℹ️ 为什么图标体文件比规格预估大：每个落盘文件除了 SVG **body** 还要套一层外壳 `<svg xmlns=… width="1em" height="1em" viewBox="…">…</svg>\n`（约 92B / 文件），1914 个共约 +176KB，故实际平均是 1786B。
+  - ℹ️ 批次文件为什么比图标体总和大（4.2MB vs 3.3MB）：`encodeURIComponent` 会把 `<` `>` `"` `#` 空格等编码成 3 字节的 `%XX`（实测膨胀约 **1.22 倍**）。用 base64 会更大（把文本变成随机字符后 brotli 压不动）。**传输时才是真实成本**：`0.json` 226KB → gzip **47.9KB（21%）**，而 120 个独立 SVG 单文件 gzip 率是 **64%**（小文件拿不到共享字典）。
 
 ### 生成时的五条硬约束（改脚本前必读）
 
@@ -231,6 +242,7 @@ extension/
 ├── lib/api.js           # 共享：配置读写、登录与 token 缓存、接口调用
 ├── lib/icon-data.js     # 【生成产物】图标库数据（勿手改）
 ├── lib/icon-picker.js   # 【生成产物】图标选择器（与 public/scripts/icon-picker.js 一致，勿手改）
+├── lib/emoji-batches/   # 【生成产物】图标批次 15 个 JSON（与 public/data/emoji-batches/ 逐字节一致，勿手改）
 └── icons/               # 16/32/48/128 图标（icon.svg 为源）
 ```
 
@@ -239,5 +251,5 @@ extension/
 - **无法在自动化里模拟「点击工具栏图标」**，因此 `activeTab` 只能在真实点击时授予 —— 自动化测试覆盖到「打开扩展页 + 真实跨域请求」为止，最后一步「点图标 → 保存」需人工点一次确认。
 - 添加书签是「读 → 追加 → 写」三步，服务端 KV 没有原子 CAS，同一瞬间的并发追加理论上可能互相覆盖（个人导航页的写入频率下不会遇到）。
 - **图标由本站自身提供，没有任何外部 CDN 依赖**：图标体落在 `public/icons/twemoji/`，运行时直接从本站取，不受任何第三方限流 / 宕机影响。代价是 **换域名后旧图标 URL 会失效**——库里存的是**绝对 URL**（`<旧 origin>/icons/twemoji/<slug>.svg`），换域名后这些链接仍指向老域名，需**重新选择图标**（或把库里旧 origin 批量替换成新 origin）。之所以存绝对 URL：扩展页没有可用的 `location.origin`，存相对路径会在扩展里裂图。
-- ⚠️ **首次部署要带上 `public/icons/`**：它是构建产物但**必须提交 / 上传**，否则所有图标 404。CI 里若只提交源码、把产物 gitignore 掉，就会踩这个坑。
+- ⚠️ **首次部署要带上 `public/icons/` 与 `public/data/emoji-batches/`**：它们都是构建产物但**必须提交 / 上传**，否则所有图标 404 / 选择器网格空白。CI 里若只提交源码、把产物 gitignore 掉，就会踩这个坑。
 - **彩色 Emoji 图标体固定为 `@iconify-json/twemoji@1.2.5`（Twemoji fork v16.0.1）**：升级需同时改 `tools/build-icon-library.mjs` 里的版本号并重跑构建脚本（slug 集合可能变，URL 模板不变）；脚本会断言落盘文件名与 slug 集合一一对应（无多无缺），升级后漏改会直接报错而非静默漂移。

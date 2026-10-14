@@ -26,19 +26,36 @@
  * 因为扩展页里没有可用的 `location.origin` 语义，相对路径会被解析成扩展自身 origin 而裂图。
  * 没有 origin 时退回相对路径（不抛错）。
  *
+ * **v5：图标批次（性能）** —— 网格每屏渲染 120 项，若逐项 `<img src="/icons/twemoji/x.svg">` 就是
+ * 120 个请求；而 EdgeOne Makers 只走 HTTP/1.1（同域最多 6 并发），实测首屏 4.4s、重载复访 8.4s。
+ * 因此构建期把图标体按 `emoji.batching.size`（128）个一批整包内联成 JSON，选择器只 fetch 当前屏
+ * 需要的那一批，再用 `data:image/svg+xml,<encodeURIComponent(svg)>` 直接喂给 `<img>` —— 首屏只剩 1 个请求。
+ *
+ * ⚠️ 三个易错点：
+ *   1. 批次**路径不写进数据产物**（否则 public/data/icon-library.json 与 extension/lib/icon-data.js
+ *      的 JSON 主体就不再逐字节一致），必须由宿主用 `batchBase` 传入；缺省从 `libraryUrl` 目录推导。
+ *   2. `data:` URI 只用于 `<img src>` **显示**；入库值仍必须是最初的「站点绝对 URL」（见 composeUrl），
+ *      因为数据库与导航页都按 URL 渲染，绝不能把 data URI 写进配置。
+ *   3. 数据没有 `emoji.batching`（老产物）或拿不到 `batchBase` 时**必须优雅退回**逐图 URL，不能空白。
+ *
  * 本选择器只提供**彩色 Emoji**（自托管的 Twemoji SVG）。渲染样式**数据驱动**（读 `library.emoji.styles`）：
  * 当前只有一种彩色样式（`base + slug + suffix`），选中时写**完整 URL**。
  * 历史数据里已存的「emoji 字符」与「图片 URL」由宿主（main.js / admin.js / popup.js）自行渲染，
  * 与本选择器无关——本文件不再提供「字符」样式，也不再涉及单色图标集。
  */
 
-/** 组件版本，便于宿主判断能力。v4：只提供彩色 Emoji（移除 Bootstrap 图标与「字符」样式）。 */
-export const ICON_PICKER_VERSION = 4;
+/** 组件版本，便于宿主判断能力。v5：图标体按批次内联为 data URI（首屏从 120 个请求降到 1 个）。 */
+export const ICON_PICKER_VERSION = 5;
 
 /** 注入样式的 <style> id（只注入一次） */
 const STYLE_ID = "sp-icon-picker-style";
 /** 首屏渲染条数 */
 const ITEM_BATCH = 120;
+/**
+ * 批次大小的兜底值（数据里 `emoji.batching.size` 缺失时用）。
+ * ⚠️ 必须与 `tools/build-icon-library.mjs` 的 `BATCH_SIZE` 一致，否则「全局下标 → 批次」会错位。
+ */
+const DEFAULT_BATCH_SIZE = 128;
 
 const CSS = `
 .sp-icon-picker {
@@ -267,6 +284,44 @@ const CSS = `
 const libraryCache = new Map();
 
 /**
+ * 批次缓存：批次文件 URL → Promise<string[]>（数组元素是**原样保留的 encodeURIComponent 形态**）。
+ * 按 **URL** 而不是批次号做 key，这样同一页面里即使出现两个不同 batchBase 的选择器也不会串数据。
+ *
+ * ⚠️ 刻意**不解码**：这些字符串会被直接拼进 `data:image/svg+xml,<...>`。原始 SVG 里满是
+ * `fill="#ffcc4d"` 这类 `#`，而在 data URI 里 `#` 是片段标识符的起点——一旦用原始文本，
+ * 图形会在第一个 `#` 处被截断成非法 SVG，`<img>` 全部触发 error 退化成字符。
+ */
+const batchCache = new Map();
+/** 已取回的批次：批次文件 URL → string[]（命中这里就不必再 await Promise） */
+const batchByUrl = new Map();
+
+/**
+ * 归一化「批次目录」路径。
+ *
+ * 优先级：显式 `batchBase` > 从 `libraryUrl` 的目录推导（`/data/icon-library.json` → `/data/emoji-batches`）。
+ * 推导是为了让「只传 libraryUrl」的宿主缺省也能享受批量化；推导不出来则返回空串 → 组件退回逐图 URL。
+ *
+ * ⚠️ 扩展侧**必须**显式传 `chrome.runtime.getURL("lib/emoji-batches")`：扩展页里相对路径会解析成
+ * 扩展自身 origin，而批次文件是随扩展包分发的（扩展页 fetch 自己的包内资源是同源，不需要 host 权限）。
+ *
+ * @param {unknown} provided 宿主传入的 batchBase
+ * @param {string} libraryUrl 宿主传入的图标库 URL
+ * @returns {string} 去尾斜杠的目录路径；推导失败返回 ""（表示不启用批次）
+ */
+function resolveBatchBase(provided, libraryUrl) {
+  const explicit = typeof provided === "string" ? provided.trim().replace(/\/+$/, "") : "";
+  if (explicit) return explicit;
+  if (typeof libraryUrl === "string" && libraryUrl) {
+    // 先剥掉 query / hash，否则 `icon-library.json?v=5` 会被当成文件名的一部分
+    const clean = libraryUrl.split("#")[0].split("?")[0];
+    const cut = clean.lastIndexOf("/");
+    // cut > 0 而不是 >= 0：`icon-library.json` 这种没有目录的写法推导不出同源目录
+    if (cut > 0) return `${clean.slice(0, cut)}/emoji-batches`;
+  }
+  return "";
+}
+
+/**
  * 幂等地把样式注入宿主 document.head。
  * @param {Document} doc
  */
@@ -337,6 +392,12 @@ function el(doc, tag, className, props) {
  * @param {object} options
  * @param {object} [options.library]      已加载好的图标库对象（扩展侧 import 后直接传入）
  * @param {string} [options.libraryUrl]   图标库 URL，组件内部 fetch 并缓存（网页侧传入）
+ * @param {string} [options.batchBase]    图标批次的目录路径（如 `/data/emoji-batches`），
+ *                                        组件会请求 `${batchBase}/${批次号}.json` 并内联成 data URI。
+ *                                        缺省从 `libraryUrl` 的目录推导；推导不出或数据无 `emoji.batching`
+ *                                        时自动退回「逐图标一个 URL」的旧行为。
+ *                                        ⚠️ 扩展侧必须传 `chrome.runtime.getURL("lib/emoji-batches")`
+ *                                        （批次随包分发；相对路径在扩展页会解析成扩展自身 origin）。
  * @param {"modal"|"panel"} [options.layout="modal"]  modal=网页居中浮层；panel=宿主容器内联（扩展弹窗用）
  * @param {HTMLElement} [options.container] panel 模式必传：选择器挂载到哪个容器
  * @param {string} [options.origin]       拼接图标绝对 URL 用的 origin（如 `https://nav.example.com`）。
@@ -358,6 +419,7 @@ export function openIconPicker(options = {}) {
   const {
     library = null,
     libraryUrl = "",
+    batchBase,
     layout = "modal",
     container = null,
     origin,
@@ -443,7 +505,13 @@ export function openIconPicker(options = {}) {
     // 彩色样式（数据驱动；applyLibrary 里从 library.emoji.styles 取值，只认带 base 的）
     emojiStyles: [],
     colorStyle: null,
+    // 批次：路径来自宿主选项（数据产物里刻意不含路径），是否真启用还要看数据有没有声明 batching
+    batchBase: resolveBatchBase(batchBase, libraryUrl),
+    batchSize: DEFAULT_BATCH_SIZE,
+    batching: false,
   };
+  /** item 数组引用 → 它在 data.emojiAll 里的全局下标（批次号/批内偏移都靠它换算） */
+  const indexByItem = new Map();
   const state = {
     phase: "loading", // loading | ready | error
     cat: "all",
@@ -451,6 +519,8 @@ export function openIconPicker(options = {}) {
     rendered: 0,
     selected: String(currentValue || "").trim(),
     focusIndex: -1,
+    /** 每次 resetGrid 自增：用于丢弃「上一轮筛选」的异步续渲结果（批次 fetch 是异步的） */
+    generation: 0,
   };
 
   // ---------------------------------------------------------------- 交互辅助
@@ -504,13 +574,23 @@ export function openIconPicker(options = {}) {
   }
 
   // ---------------------------------------------------------------- 渲染
-  function resetGrid() {
+  /**
+   * 按当前分类 + 搜索词重算列表并重建网格。
+   *
+   * ⚠️ 异步：`renderMore` 要等批次数据回来才有 DOM。因此 roving tabindex 的逻辑必须等它完成后再做，
+   * 否则会对着空网格设焦点。`state.generation` 用来丢弃「切筛选前发起的」那次续渲。
+   * @returns {Promise<void>}
+   */
+  async function resetGrid() {
+    state.generation += 1;
+    const generation = state.generation;
     state.filtered = computeFiltered();
     state.rendered = 0;
     state.focusIndex = -1;
     // 清空并重新挂回哨兵，保证它始终是最后一个子节点
     grid.replaceChildren(sentinel);
-    renderMore();
+    await renderMore();
+    if (closed || generation !== state.generation) return;
 
     // roving tabindex：网格里必须**始终有一个** tabIndex=0，否则键盘用户按 Tab 进不来网格。
     // 命中当前值就把它设为 0 并滚动到可见，否则退而把首项设为 0。
@@ -552,8 +632,117 @@ export function openIconPicker(options = {}) {
     return item[0];
   }
 
-  function renderMore() {
+  // ---------------------------------------------------------------- 图标批次（v5）
+  /**
+   * item 在全部 emoji 里的全局下标（= `emoji.groups` 展平后的下标，与构建脚本的批次切分口径一致）。
+   * 拿不到时返回 -1（调用方退回逐图 URL）。
+   * @param {object} item
+   * @returns {number}
+   */
+  function globalIndexOf(item) {
+    const index = indexByItem.get(item);
+    return typeof index === "number" ? index : -1;
+  }
+
+  /**
+   * 全局下标 → 批次号（`Math.floor` 与构建脚本的分片方式一一对应）。
+   * @param {number} index
+   * @returns {number}
+   */
+  function batchIndexOf(index) {
+    return Math.floor(index / data.batchSize);
+  }
+
+  /**
+   * 某一批的 JSON URL。
+   * @param {number} index
+   * @returns {string}
+   */
+  function batchUrl(index) {
+    return `${data.batchBase}/${index}.json`;
+  }
+
+  /**
+   * 读取（并缓存）某一批图标体，返回数组下标 = 批内偏移。
+   *
+   * ⚠️ 返回的字符串**保持 encodeURIComponent 形态**（见 batchCache 的说明），
+   * 调用方直接拼进 data URI，不要解码。
+   *
+   * 与 loadLibraryFromUrl 一样，失败时清缓存，让用户点「重试」能真的重来。
+   * @param {number} index
+   * @returns {Promise<string[]>}
+   */
+  function loadBatch(index) {
+    const url = batchUrl(index);
+    const done = batchByUrl.get(url);
+    if (done) return Promise.resolve(done);
+    const pending = batchCache.get(url);
+    if (pending) return pending;
+    const promise = (async () => {
+      const response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) {
+        throw new Error(`图标批次加载失败（HTTP ${response.status}）。`);
+      }
+      const raw = await response.json();
+      if (!Array.isArray(raw)) {
+        throw new Error("图标批次格式不正确（期望 JSON 数组）。");
+      }
+      const entries = raw.map(String);
+      batchByUrl.set(url, entries);
+      return entries;
+    })();
+    promise.catch(() => batchCache.delete(url));
+    batchCache.set(url, promise);
+    return promise;
+  }
+
+  /**
+   * 图标的**显示** src：批次可用时返回内联 data URI（零额外请求），否则退回逐图 URL。
+   *
+   * ⚠️ 不要和 `valueOf` 混用：`valueOf` 返回的是**入库值**（站点绝对 URL，数据库与导航页都按 URL
+   * 渲染），这里的返回值只用于 `<img src>` 显示。把 data URI 写进配置会让导航页存下整份 SVG。
+   *
+   * @param {object} item
+   * @param {number} globalIndex data.emojiAll 里的下标；-1 表示定位不到
+   * @returns {string}
+   */
+  function iconSrcFor(item, globalIndex) {
+    if (!data.batching || globalIndex < 0) return valueOf(item);
+    const batch = batchByUrl.get(batchUrl(batchIndexOf(globalIndex)));
+    const encoded = batch && batch[globalIndex % data.batchSize];
+    // 批次缺失（越界 / 加载失败）时退回逐图 URL：能显示总比空白好，
+    // 真的连不上时 <img> 的 error 事件还会把它换成字符，最终不会留裂图。
+    if (!encoded) return valueOf(item);
+    return `data:image/svg+xml,${encoded}`;
+  }
+
+  /** 这一批要渲染的项需要哪些批次文件（跨批时是连续区间） */
+  function neededBatches(items) {
+    if (!data.batching || items.length === 0) return [];
+    const first = globalIndexOf(items[0]);
+    const last = globalIndexOf(items[items.length - 1]);
+    if (first < 0 || last < 0) return [];
+    const from = batchIndexOf(first);
+    const to = batchIndexOf(last);
+    const wanted = [];
+    for (let i = from; i <= to; i += 1) wanted.push(i);
+    return wanted;
+  }
+
+  /**
+   * 续渲下一批（`ITEM_BATCH` 项）。
+   *
+   * ⚠️ 这是**异步**的（要先取回本屏所需的图标批次）。为避免并发重入把同一段插入两遍：
+   *   1. 先**同步占位** `state.rendered`，再 await 网络，最后才落 DOM；
+   *   2. await 回来后比对 `state.generation`，期间若发生过 resetGrid（切分类 / 改搜索词），
+   *      本次续渲的结果整体丢弃，避免把旧筛选的项追加进新网格。
+   * 任何情况下都不抛错（批次失败走 showError，与图标库加载失败的提示一致）。
+   *
+   * @returns {Promise<void>}
+   */
+  async function renderMore() {
     if (state.phase !== "ready") return;
+    const generation = state.generation;
     const remaining = state.filtered.length - state.rendered;
     if (remaining <= 0) {
       // 空结果只挂一次占位，避免 IntersectionObserver 反复触发导致重复追加
@@ -563,10 +752,28 @@ export function openIconPicker(options = {}) {
       if (observer) observer.disconnect();
       return;
     }
-    const next = state.filtered.slice(state.rendered, state.rendered + ITEM_BATCH);
+
+    const start = state.rendered;
+    const next = state.filtered.slice(start, start + ITEM_BATCH);
+    // 先占位：即使中途被并发调用，第二次进来也算在后面的区间，不会重复渲染同一段
+    state.rendered = start + next.length;
+
+    const wanted = neededBatches(next);
+    if (wanted.length > 0) {
+      try {
+        await Promise.all(wanted.map(loadBatch));
+      } catch (error) {
+        if (generation === state.generation && !closed) {
+          showError((error && error.message) || String(error));
+        }
+        return;
+      }
+      if (closed || generation !== state.generation) return;
+    }
+
     const fragment = doc.createDocumentFragment();
     next.forEach((item, offset) => {
-      const index = state.rendered + offset;
+      const index = start + offset;
       const button = el(doc, "button", "sp-ip-item");
       button.type = "button";
       button.tabIndex = -1;
@@ -575,7 +782,8 @@ export function openIconPicker(options = {}) {
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", "false");
 
-      // 彩色 emoji：加载失败时回退为字符本身，避免裂图
+      // 彩色 emoji：批次可用时是 data URI（零请求），否则退回逐图 URL；
+      // 两种情况下加载失败都回退为字符本身，避免裂图
       const img = el(doc, "img", null, { alt: "", loading: "lazy", decoding: "async" });
       img.addEventListener(
         "error",
@@ -584,7 +792,7 @@ export function openIconPicker(options = {}) {
         },
         { once: true },
       );
-      img.src = valueOf(item);
+      img.src = iconSrcFor(item, globalIndexOf(item));
       button.title = item[1] || item[0];
       button.appendChild(img);
 
@@ -600,7 +808,6 @@ export function openIconPicker(options = {}) {
       fragment.appendChild(button);
     });
     grid.insertBefore(fragment, sentinel);
-    state.rendered += next.length;
     // 还有剩余才需要观察哨兵；已渲染完则断开观察器
     if (state.rendered < state.filtered.length) {
       observeTail();
@@ -626,7 +833,10 @@ export function openIconPicker(options = {}) {
             if (state.rendered < state.filtered.length) renderMore();
           }
         },
-        { root: grid, rootMargin: "120px" },
+        // rootMargin 必须**小于**「一屏内容高 - 网格可视高」的差值，否则哨兵在首屏就已进入视口，
+        // 首屏会直接续渲第二屏（实测临界点 ≈71px：网格 340 可视、120 项 = 411px 内容）。
+        // 取 40px 留出余量，确保首屏就是精确的一批 —— 也就是「1 个批次请求」。
+        { root: grid, rootMargin: "40px" },
       );
     }
     observer.disconnect();
@@ -720,8 +930,16 @@ export function openIconPicker(options = {}) {
     }
     const target = index + map[event.key];
     if (target < 0) return;
-    // 触底时补渲一批，让键盘可以继续往下走
-    if (target >= itemCount() && state.rendered < state.filtered.length) renderMore();
+    // 触底时补渲一批，让键盘可以继续往下走。
+    // 续渲是异步的（要先取批次），所以焦点要等 DOM 长出来之后再落。
+    if (target >= itemCount() && state.rendered < state.filtered.length) {
+      renderMore()
+        .catch(() => {})
+        .then(() => {
+          if (!closed) setFocus(Math.min(target, itemCount() - 1));
+        });
+      return;
+    }
     setFocus(Math.min(target, itemCount() - 1));
   }
 
@@ -741,6 +959,16 @@ export function openIconPicker(options = {}) {
     data.emojiAll = data.emojiGroups.flatMap((group) =>
       (group.items || []).map((item) => [item[0], item[1], item[2], group.id, item[3]]),
     );
+    // 批次：key 用 item 数组引用，值就是它在 emojiAll 里的下标 —— 批次切分口径与构建脚本一致
+    // （构建脚本同样按 `emoji.groups` 展平后的顺序每 size 个切一片）。
+    indexByItem.clear();
+    data.emojiAll.forEach((item, index) => indexByItem.set(item, index));
+    const batchingDecl = lib.emoji.batching;
+    data.batchSize =
+      batchingDecl && Number(batchingDecl.size) > 0 ? Number(batchingDecl.size) : DEFAULT_BATCH_SIZE;
+    // 两个条件同时满足才启用：数据声明了 batching（新产物）+ 宿主给了批次目录（或能推导出来）。
+    // 任一不满足就退回逐图 URL —— 老数据、老宿主都不会因此空白。
+    data.batching = Boolean(batchingDecl && data.batchBase);
     state.phase = "ready";
     resetAll();
     updateFooter();
