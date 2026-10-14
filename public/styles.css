@@ -837,10 +837,20 @@ body.dark-theme .search-select select option {
   justify-self: center;
 }
 
-.theme-toggle {
+/* 概览卡片右上角的圆形图标按钮组：主题切换 + 管理后台入口，共用同一套外观。
+   注意：整组由 .summary-actions 承担绝对定位，单个按钮不再各自定位 ——
+   否则新增按钮会与主题按钮重叠在同一个 right 上。 */
+.summary-actions {
   position: absolute;
   top: clamp(1.5rem, 4vw, 2.2rem);
   right: clamp(1.5rem, 4vw, 2.2rem);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  z-index: 10;
+}
+
+.summary-action {
   width: 2.8rem;
   height: 2.8rem;
   display: inline-flex;
@@ -851,26 +861,29 @@ body.dark-theme .search-select select option {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  z-index: 10;
+  /* 管理后台入口是 <a>（可右键新标签打开 / 可复制链接），外观必须与 <button> 完全一致 */
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
   transition: color 160ms ease, transform 160ms ease;
 }
 
-.theme-toggle:hover,
-.theme-toggle:focus-visible {
+.summary-action:hover,
+.summary-action:focus-visible {
   color: var(--text-primary);
   transform: scale(1.1);
   outline: none;
 }
 
-.theme-toggle:focus-visible {
+.summary-action:focus-visible {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.28);
 }
 
-.theme-toggle svg {
+.summary-action svg {
   width: 1.5rem;
   height: 1.5rem;
 }
 
+/* 主题按钮按当前主题在太阳 / 月亮之间切换 */
 .theme-toggle .sun-icon {
   display: none;
 }
@@ -887,16 +900,7 @@ body.dark-theme .theme-toggle .moon-icon {
   display: none;
 }
 
-body.dark-theme .theme-toggle {
-  color: var(--text-secondary);
-}
-
-body.dark-theme .theme-toggle:hover,
-body.dark-theme .theme-toggle:focus-visible {
-  color: var(--text-primary);
-}
-
-body.dark-theme .theme-toggle:focus-visible {
+body.dark-theme .summary-action:focus-visible {
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.28);
 }
 
