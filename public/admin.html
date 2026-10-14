@@ -223,10 +223,12 @@
               ></textarea>
             </div>
             <div class="field">
-              <span>图标（支持 Emoji 或图片 URL）</span>
+              <span>图标（支持自动获取 / Emoji / Bootstrap 图标 / 图片 URL）</span>
               <div class="input-with-button">
+                <span class="icon-field-preview" id="editor-icon-preview" aria-hidden="true"></span>
                 <input type="text" id="editor-icon" autocomplete="off" placeholder="例如：🎯 或 https://..." />
                 <button type="button" id="fetch-logo-button" class="secondary-button" title="根据上方填写的链接自动获取图标">自动获取</button>
+                <button type="button" id="picker-icon-button" class="secondary-button" title="从 Emoji 或 Bootstrap 官方图标库中选择">选择图标</button>
               </div>
             </div>
             <div class="field" id="editor-category-field" hidden>

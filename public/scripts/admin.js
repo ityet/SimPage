@@ -1,4 +1,5 @@
 import { renderMarkdown } from "./markdown.js";
+import { openIconPicker } from "./icon-picker.js";
 
 const appsEditor = document.getElementById("apps-editor");
 const bookmarksEditor = document.getElementById("bookmarks-editor");
@@ -15,6 +16,7 @@ const modalNameInput = document.getElementById("editor-name");
 const modalUrlInput = document.getElementById("editor-url");
 const modalDescriptionInput = document.getElementById("editor-description");
 const modalIconInput = document.getElementById("editor-icon");
+const modalIconPreview = document.getElementById("editor-icon-preview");
 const modalCategoryField = document.getElementById("editor-category-field");
 const modalCategoryInput = document.getElementById("editor-category");
 const modalCategoryPlaceholder =
@@ -533,6 +535,73 @@ function isLogoUrl(value) {
   return typeof value === "string" && (/^https?:\/\//i.test(value) || value.startsWith("data:"));
 }
 
+/**
+ * 图标值是否可直接作为图片地址（与前台 main.js 的判定保持一致）。
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isImageIconValue(value) {
+  const text = String(value || "").trim();
+  return /^https?:\/\//i.test(text) || text.startsWith("data:image/");
+}
+
+/**
+ * 刷新编辑弹窗里的图标预览位（24×24）。
+ *
+ * 预览位是**容器**而非 <img>：`<img>` 无法渲染文本子节点，emoji 占位永远显示不出来，
+ * 所以图片走 <img>、emoji 直接把文本写进容器。图片加载失败时一次性回退到占位符，避免裂图。
+ *
+ * @param {string} value emoji 或图片地址
+ */
+function renderIconPreview(value) {
+  if (!modalIconPreview) return;
+  const icon = String(value || "").trim();
+  modalIconPreview.replaceChildren();
+
+  if (isImageIconValue(icon)) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.addEventListener(
+      "error",
+      () => {
+        modalIconPreview.replaceChildren(document.createTextNode("🎯"));
+      },
+      { once: true },
+    );
+    img.src = icon;
+    modalIconPreview.appendChild(img);
+    return;
+  }
+
+  // 非图片值：取首个码点作为 emoji 文本；为空时用占位符
+  const text = icon ? Array.from(icon)[0] : "🎯";
+  modalIconPreview.replaceChildren(document.createTextNode(text));
+}
+
+/**
+ * 打开图标选择器（Emoji / Bootstrap 官方图标库），选中后写回输入框并刷新预览。
+ *
+ * 数据按需 fetch `/data/icon-library.json`（绝对路径，与 admin.html 里 `/styles.css` 等风格一致）。
+ * 加载中与失败态由组件内部处理（骨架屏 + 失败提示 + 重试），不会拖垮整个后台。
+ *
+ * `origin` 传当前站点 origin：数据里的 base 是路径（`/icons/bi/`），组件据此外拼绝对 URL 显示与入库。
+ */
+function openEditorIconPicker() {
+  if (!modalIconInput) return;
+  openIconPicker({
+    libraryUrl: "/data/icon-library.json",
+    layout: "modal",
+    origin: location.origin,
+    currentValue: modalIconInput.value.trim(),
+    title: "选择图标",
+    onSelect: (value) => {
+      modalIconInput.value = value;
+      modalIconInput.title = value;
+      renderIconPreview(value);
+    },
+  });
+}
+
 function render() {
   // 重绘会换掉整张表，旧的拖拽上下文（行索引）随之失效，必须先复位
   resetSortState();
@@ -901,6 +970,8 @@ function openEditor(type, index) {
   if (modalUrlInput) modalUrlInput.value = reference.url || "";
   if (modalDescriptionInput) modalDescriptionInput.value = reference.description || "";
   if (modalIconInput) modalIconInput.value = reference.icon || "";
+  if (modalIconInput) modalIconInput.title = modalIconInput.value;
+  renderIconPreview(modalIconInput ? modalIconInput.value : "");
 
   if (type === "bookmarks") {
     showBookmarkCategoryField(reference.category || "");
@@ -1700,6 +1771,8 @@ async function handleFetchLogo() {
     }
 
     modalIconInput.value = result.faviconUrl;
+    modalIconInput.title = result.faviconUrl;
+    renderIconPreview(result.faviconUrl);
 
     // 名称/描述仅在用户尚未填写时补全，不覆盖已录入的内容
     if (modalNameInput && !modalNameInput.value.trim()) {
@@ -1792,6 +1865,20 @@ function bindEvents() {
 
   if (modalForm) {
     modalForm.addEventListener("submit", applyModalChanges);
+  }
+
+  // 图标输入实时刷新预览
+  if (modalIconInput) {
+    modalIconInput.addEventListener("input", () => {
+      modalIconInput.title = modalIconInput.value.trim();
+      renderIconPreview(modalIconInput.value);
+    });
+  }
+
+  // 「选择图标」：从 Emoji / Bootstrap 图标库中挑选
+  const pickerIconButton = document.getElementById("picker-icon-button");
+  if (pickerIconButton) {
+    pickerIconButton.addEventListener("click", openEditorIconPicker);
   }
 
   if (modalCancelButton) {
@@ -1896,6 +1983,7 @@ async function initialise() {
   applySettingsToInputs(state.settings);
   render();
   resetDirty();
+  renderIconPreview(modalIconInput ? modalIconInput.value : "");
   const storedToken = loadStoredToken();
   if (storedToken) {
     authToken = storedToken;

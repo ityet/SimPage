@@ -67,10 +67,16 @@
           <textarea id="field-description" rows="2" maxlength="200" placeholder="可选"></textarea>
         </label>
 
-        <label class="field">
-          <span class="label">图标</span>
-          <input type="text" id="field-icon" maxlength="2048" placeholder="emoji 或图片地址" autocomplete="off" spellcheck="false" />
-        </label>
+        <div class="field">
+          <div class="label">
+            <span>图标</span>
+            <button type="button" class="link-btn" id="pick-icon-link">选择图标</button>
+          </div>
+          <div class="icon-input-row">
+            <input type="text" id="field-icon" maxlength="2048" placeholder="emoji 或图片地址" autocomplete="off" spellcheck="false" />
+            <button type="button" class="pick-button" id="pick-icon-button" title="从 Emoji 或 Bootstrap 官方图标库中选择">选择图标</button>
+          </div>
+        </div>
 
         <label class="field">
           <span class="label">分类</span>
@@ -89,6 +95,11 @@
           <button type="button" class="primary" id="save">保存到 SimPage</button>
           <a class="link-btn" id="open-site" href="#" target="_blank" rel="noopener" hidden>打开导航页 ↗</a>
         </div>
+      </section>
+
+      <!-- 图标选择器（内联面板；Chrome 扩展弹窗按内容自适应高度，故不使用 fixed 浮层） -->
+      <section class="panel" id="view-picker" hidden>
+        <div id="icon-picker-host"></div>
       </section>
     </div>
 

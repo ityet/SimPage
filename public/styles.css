@@ -1588,6 +1588,50 @@ body.is-sorting {
   outline: none;
 }
 
+/* 「选择图标」按钮：沿用 .secondary-button 语汇，用一层紫色调区分于「自动获取」 */
+#picker-icon-button {
+  border-color: rgba(129, 140, 248, 0.34);
+  background: rgba(129, 140, 248, 0.14);
+  color: rgba(79, 70, 229, 0.95);
+}
+
+#picker-icon-button:hover,
+#picker-icon-button:focus-visible {
+  box-shadow: 0 12px 24px rgba(129, 140, 248, 0.18);
+}
+
+body.dark-theme #picker-icon-button,
+:root[data-theme="dark"] #picker-icon-button {
+  border-color: rgba(129, 140, 248, 0.42);
+  background: rgba(129, 140, 248, 0.2);
+  color: #c7d2fe;
+}
+
+/* 图标字段的 24×24 预览位：容器（非 <img>），图片 object-fit、emoji 直接文本居中。
+   选择器用 .field .icon-field-preview 提高优先级，盖过上面的 .field span 规则。 */
+.field .icon-field-preview {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--tile-bg);
+  border: 1px solid var(--divider-soft);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.field .icon-field-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
 .category-badge {
   font-size: 0.75rem;
   padding: 0.15rem 0.55rem;
@@ -2043,4 +2087,62 @@ body.modal-open {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* =====================================================================
+   共用图标选择器（public/scripts/icon-picker.js）配色接入
+   ---------------------------------------------------------------------
+   选择器组件自带前缀隔离样式，并按「--sp-ip-* → 通用变量 → 内置回退」取值。
+   站点用的是 --tile-bg / --text-primary 等另一套命名，故在此显式映射。
+
+   ⚠️ 刻意**不映射** --sp-ip-surface / --sp-ip-soft：
+   站点的玻璃令牌是半透明的（--tile-bg: rgba(255,255,255,0.6)、--accent-muted: rgba(255,255,255,0.78)），
+   直接当浮层面板底色会让下层表单内容「透出来」，观感很脏。
+   因此浅色下直接用组件自带的不透明回退（#ffffff / #f1f3f9）；
+   暗色下站点没有合适的不透明令牌，这里补一组显式的不透明值。
+   ===================================================================== */
+.sp-icon-picker {
+  --sp-ip-text: var(--text-primary);
+  --sp-ip-border: var(--divider-soft);
+  --sp-ip-muted: var(--text-secondary);
+}
+
+body.dark-theme .sp-icon-picker,
+:root[data-theme="dark"] .sp-icon-picker {
+  --sp-ip-surface: #2c2c2e;
+  --sp-ip-soft: #3a3a3c;
+}
+
+/* =====================================================================
+   深色主题下「单色图标」（以 <img src> 渲染的 SVG）不可见
+   ---------------------------------------------------------------------
+   根因（已用隔离实验确证，不要再按「加 color-scheme 就行」去猜）：
+   单色图标集的 SVG 根节点是 fill="currentColor"，而**在 <img src> 里
+   currentColor 恒解析为黑色**，与 color-scheme / prefers-color-scheme 完全无关。
+   于是深色底（--tile-bg / .admin-item-icon 的 #3A3A3C）上图标全黑 → 不可见。
+
+   覆盖哪些 URL（三种历史形态都要照顾）：
+   - `bootstrap-icons`          ：最早期的存量数据（旧 npmmirror CDN），必须继续反色，否则老用户暗色下全黑；
+   - `api.iconify.design/bi/`   ：中间一版曾用的 Iconify 单色集（兼容存量数据）；
+   - `/icons/bi/`               ：**当前自托管**的 Bootstrap 图标路径（必须反色）；
+   - 而彩色 emoji（`/icons/twemoji/...`、`api.iconify.design/twemoji/...`）**绝对不能反色** → 用 :not() 排除。
+
+   为什么用属性选择器而不是给容器加类：
+   `icon` 字段只是一条 URL 字符串，消费端（main.js / admin.js）拿不到「这是单色图标」的
+   类型信息；URL 子串是唯一可靠、且零数据改动的信号。
+   ⚠️ **新增单色图标集时必须在下面的 :is() 列表里登记**（彩色集用 :not() 排除）。
+   ⚠️ 绝对不要对全部 <img> 加反色：favicon、PNG logo、彩色 emoji、emoji 生成的 data URI 都会被毁掉。
+   ⚠️ 源色是纯黑（currentColor → #000），invert(1) 后即纯白，**不需要** hue-rotate。
+   ===================================================================== */
+body.dark-theme :is(
+  img[src*="bootstrap-icons"],
+  img[src*="/icons/bi/"],
+  img[src*="api.iconify.design"]:not([src*="/twemoji/"])
+),
+:root[data-theme="dark"] :is(
+  img[src*="bootstrap-icons"],
+  img[src*="/icons/bi/"],
+  img[src*="api.iconify.design"]:not([src*="/twemoji/"])
+) {
+  filter: invert(1);
 }

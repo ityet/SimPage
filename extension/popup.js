@@ -9,6 +9,9 @@
  */
 
 import { ApiError, addBookmark, fetchCategories, fetchLogo, readConfig } from "./lib/api.js";
+// 图标库数据与选择器：均为 tools/build-icon-library.mjs 的生成产物（icon-picker.js 与网页端逐字节一致）
+import { ICON_LIBRARY } from "./lib/icon-data.js";
+import { openIconPicker } from "./lib/icon-picker.js";
 
 const NAME_MAX = 60;
 const DESCRIPTION_MAX = 200;
@@ -23,6 +26,8 @@ const els = {
   blocked: document.getElementById("view-blocked"),
   blockedReason: document.getElementById("blocked-reason"),
   form: document.getElementById("view-form"),
+  pickerView: document.getElementById("view-picker"),
+  pickerHost: document.getElementById("icon-picker-host"),
 
   pageIcon: document.getElementById("page-icon"),
   pageTitle: document.getElementById("page-title"),
@@ -35,6 +40,9 @@ const els = {
   category: document.getElementById("field-category"),
   categoryOptions: document.getElementById("category-options"),
 
+  pickIconLink: document.getElementById("pick-icon-link"),
+  pickIconButton: document.getElementById("pick-icon-button"),
+
   refetch: document.getElementById("refetch"),
   save: document.getElementById("save"),
   openSite: document.getElementById("open-site"),
@@ -45,7 +53,12 @@ const els = {
 const state = {
   siteUrl: "",
   saved: false,
+  /** 当前标签页自带图标，图标清空时用于预览回退 */
+  tabIcon: "",
 };
+
+/** 打开中的图标选择器句柄（避免重复打开） */
+let pickerHandle = null;
 
 // =================================================================================
 // 工具函数
@@ -106,12 +119,13 @@ function messageOf(error) {
 
 /**
  * 只显示一个面板。
- * @param {"unconfigured" | "blocked" | "form"} name
+ * @param {"unconfigured" | "blocked" | "form" | "picker"} name
  */
 function showView(name) {
   els.unconfigured.hidden = name !== "unconfigured";
   els.blocked.hidden = name !== "blocked";
   els.form.hidden = name !== "form";
+  els.pickerView.hidden = name !== "picker";
 }
 
 /**
@@ -192,11 +206,59 @@ function setBusy(busy) {
     els.save.disabled = true;
     els.save.textContent = "已保存";
     els.refetch.disabled = true;
+    setPickerEnabled(false);
     return;
   }
   els.save.disabled = busy;
   els.refetch.disabled = busy;
   els.save.textContent = busy ? "保存中…" : "保存到 SimPage";
+  setPickerEnabled(!busy);
+}
+
+/**
+ * 启用 / 禁用「选择图标」的两个入口（已保存后不允许再改图标）。
+ * @param {boolean} enabled
+ */
+function setPickerEnabled(enabled) {
+  if (els.pickIconLink) els.pickIconLink.disabled = !enabled;
+  if (els.pickIconButton) els.pickIconButton.disabled = !enabled;
+}
+
+// =================================================================================
+// 图标选择器
+// =================================================================================
+
+/**
+ * 打开图标选择器。
+ *
+ * 用「面板切换」而非 fixed 浮层：Chrome 扩展弹窗按内容自适应高度，
+ * `position: fixed` 的浮层不计入内容高度，会被弹窗裁切掉一部分。
+ * 因此这里隐藏表单、显示 #view-picker，让弹窗自然撑高。
+ */
+function openPicker() {
+  if (state.saved || pickerHandle) return;
+  showView("picker");
+  pickerHandle = openIconPicker({
+    // 扩展侧直接传入打包好的数据（MV3 弹窗不能跨域 fetch 站点资源）
+    library: ICON_LIBRARY,
+    layout: "panel",
+    container: els.pickerHost,
+    // 图标体自托管在站点上（base 是路径），扩展页没有可用的 location.origin，
+    // 必须用用户配置的站点地址拼绝对 URL，否则相对路径会解析成扩展自身 origin 而裂图。
+    origin: state.siteUrl,
+    currentValue: els.icon.value.trim(),
+    title: "选择图标",
+    onSelect: (value) => {
+      els.icon.value = value;
+      els.icon.title = value;
+      // 清除（空串）时预览退回当前标签页图标，与原有行为保持一致
+      renderIconPreview(value || state.tabIcon || "");
+    },
+    onClose: () => {
+      pickerHandle = null;
+      showView("form");
+    },
+  });
 }
 
 // =================================================================================
@@ -371,6 +433,7 @@ async function main() {
   }
 
   const info = tabResult.data;
+  state.tabIcon = info.tabIcon || "";
   let defaultCategory = config.defaultCategory;
   if (defaultCategory && Array.isArray(config.categories) && config.categories.length > 0) {
     const known = config.categories.some(
@@ -387,8 +450,11 @@ async function main() {
   els.refetch.addEventListener("click", handleRefetch);
   els.icon.addEventListener("input", () => {
     els.icon.title = els.icon.value.trim();
-    renderIconPreview(els.icon.value.trim() || info.tabIcon || "");
+    renderIconPreview(els.icon.value.trim() || state.tabIcon || "");
   });
+  // 图标选择器：标签行的链接与输入行按钮是同一个入口
+  if (els.pickIconLink) els.pickIconLink.addEventListener("click", openPicker);
+  if (els.pickIconButton) els.pickIconButton.addEventListener("click", openPicker);
 
   // 分类候选走 /api/admin/data（不递增访客计数），失败静默沿用本地缓存
   fetchCategories()
