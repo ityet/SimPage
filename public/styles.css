@@ -1369,7 +1369,9 @@ body.dark-theme .summary-action:focus-visible {
   width: 27%;
 }
 
-/* 应用表专属：描述列收窄，链接列放宽（链接是等宽字体 + break-all，多给宽度少折行） */
+/* 应用表专属：描述列收窄，链接列放宽。
+   注意 width 在 auto 布局下只是建议值：url 因 break-all 可压缩性最强，
+   实际宽度常被描述列挤占，所以用 min-width 给它兜底。 */
 .admin-table-apps th[data-column="description"],
 .admin-table-apps td[data-column="description"] {
   width: 12%;
@@ -1378,6 +1380,7 @@ body.dark-theme .summary-action:focus-visible {
 .admin-table-apps th[data-column="url"],
 .admin-table-apps td[data-column="url"] {
   width: 33%;
+  min-width: 300px;
 }
 
 /* 书签表专属：名称列收窄，腾出的空间由描述/链接列自动吸收 */
