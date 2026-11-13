@@ -226,6 +226,12 @@ body {
   margin-bottom: 10px;
 }
 
+/* .field 自带 display:block，会盖过 UA 的 [hidden]{display:none}，
+   所以「应用」模式下隐藏分类字段必须显式补这一条 */
+.field[hidden] {
+  display: none;
+}
+
 .inline-note {
   display: flex;
   align-items: center;
@@ -277,6 +283,63 @@ textarea:focus {
 input[type="text"]::placeholder,
 textarea::placeholder {
   color: var(--text-muted);
+}
+
+/* ---------- 「保存到」分段控件（书签 / 应用） ---------- */
+
+/* 容器做成一条圆角轨道，两段等宽；选中态用浅底 + 主色文字，
+   深色下靠 --surface-soft / --accent 自动跟随 var() 变化，不需要另写一套暗色规则。 */
+.segmented {
+  display: flex;
+  width: 100%;
+  padding: 3px;
+  gap: 3px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.segment {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.segment:hover:not([aria-checked="true"]) {
+  color: var(--text);
+}
+
+/* 选中态：白底浮起来 + 主色文字，与 .panel 的层次关系一致 */
+.segment[aria-checked="true"] {
+  color: var(--accent);
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  box-shadow: 0 1px 3px rgba(29, 33, 48, 0.08);
+}
+
+.segment:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(127, 90, 240, 0.15);
+}
+
+/* 深色下白底会糊在浅色面板上，换成提亮一档的 soft 底；
+   #7f5af0 在深底上偏暗，选中态文字一并提亮，保证对比度 */
+@media (prefers-color-scheme: dark) {
+  .segment[aria-checked="true"] {
+    color: #b9a6ff;
+    background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+    box-shadow: none;
+  }
 }
 
 /* ---------- 图标字段（输入框 + 选择图标） ---------- */

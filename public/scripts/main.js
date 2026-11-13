@@ -652,8 +652,10 @@ function createTile(item) {
 
   if (iconContent.startsWith("http://") || iconContent.startsWith("https://") || iconContent.startsWith("data:")) {
     const img = document.createElement("img");
-    img.src = iconContent;
+    // 监听必须在赋 src 之前挂好：命中缓存/立即失败时 error 可能同步派发，晚挂就漏了
+    img.addEventListener("error", () => applyFallbackIcon(iconWrapper, item.name), { once: true });
     img.alt = `${item.name || ""} 图标`;
+    img.src = iconContent;
     iconWrapper.appendChild(img);
   } else if (iconContent.length > 0) {
     iconWrapper.textContent = iconContent.slice(0, 4);
@@ -680,6 +682,23 @@ function createTile(item) {
   link.appendChild(description);
 
   return link;
+}
+
+/**
+ * 图标加载失败时的统一兜底：把容器整体降级成「名称首字符」占位。
+ *
+ * 只把 <img> 隐藏/变透明是不够的 —— 裂图标记与 alt 文本由浏览器绘制，
+ * 元素还照旧占位。所以这里清空子节点、换成纯文本，让「拿不到图」与
+ * 「本来就没有图标」走完全相同的渲染路径（同一个 deriveFallbackIcon），
+ * 视觉上区分不出来。
+ *
+ * @param {HTMLElement} container 承载图标的容器（前台磁贴传 .tile-icon）
+ * @param {string} name 条目名称，取其首字符；空名称时 deriveFallbackIcon 回落 ★
+ * @returns {void}
+ */
+function applyFallbackIcon(container, name) {
+  if (!container) return;
+  replaceChildrenSafe(container, document.createTextNode(deriveFallbackIcon(name)));
 }
 
 function deriveFallbackIcon(name) {

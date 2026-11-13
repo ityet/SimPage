@@ -943,20 +943,83 @@ function bookmarkFingerprint(url) {
   }
 }
 
+// 集合的对外中文名：同时用于日志与 409 文案，避免两处硬编码走偏
+const COLLECTION_LABELS = Object.freeze({ apps: "应用", bookmarks: "书签" });
+
 /**
- * POST /api/bookmarks —— 追加单条书签（浏览器扩展等外部客户端使用）。
+ * 解析「追加到哪个集合」。
+ *
+ * 只有 `/api/items` 允许客户端指定类型；`/api/bookmarks` 固定为 bookmarks，
+ * 保持旧扩展依赖的语义不变。非法值一律按 bookmarks 宽容降级而非返回 400：
+ * 客户端（浏览器扩展）版本可能领先于部署版本，为未知 type 硬报错只会让
+ * 用户看到一条无从理解的失败提示，而降级到书签至少把链接存下来了。
+ *
+ * @param {*} rawType 客户端传来的 type
+ * @param {boolean} allowAnyType 是否允许客户端选择集合
+ * @returns {"apps" | "bookmarks"}
+ */
+function resolveCollectionType(rawType, allowAnyType) {
+  if (!allowAnyType) return "bookmarks";
+  const normalised = typeof rawType === "string" ? rawType.trim().toLowerCase() : "";
+  return normalised === "apps" ? "apps" : "bookmarks";
+}
+
+/**
+ * 生成「同集合内重复」的提示文案。
+ * @param {"apps" | "bookmarks"} type
+ * @param {object} existing 已存在的同 URL 条目
+ * @returns {string}
+ */
+function duplicateMessage(type, existing) {
+  const label = COLLECTION_LABELS[type];
+  // 分类后缀只对书签有意义（应用没有 category 字段），空分类不出括号
+  const suffix = type === "bookmarks" && existing.category ? `（${existing.category}）` : "";
+  return `该链接已在${label}中：${existing.name}${suffix}`;
+}
+
+/**
+ * 生成「跨集合重复」的提示文案，并指明迁移路径。
+ *
+ * 跨集合判重的动机：导航页上应用区与书签区是两块并列的展示区域，
+ * 同一个 URL 同时出现在两边会让用户看到两个入口、点进去是同一个站点，
+ * 是纯粹的视觉噪音。这里不自动帮他搬（搬走哪一条是用户的判断），
+ * 只拒绝写入并告诉他正确的操作入口。
+ *
+ * @param {"apps" | "bookmarks"} targetType 本次想写入的集合
+ * @param {"apps" | "bookmarks"} otherType 冲突条目所在的另一个集合
+ * @param {object} existing 冲突条目
+ * @returns {string}
+ */
+function crossCollectionMessage(targetType, otherType, existing) {
+  const targetLabel = COLLECTION_LABELS[targetType];
+  const otherLabel = COLLECTION_LABELS[otherType];
+  // 指引里的按钮名必须跟管理后台实际文案一致：后台行内按钮已统一叫「切换」，
+  // 这里若还写「移到应用/移到书签」，用户会去后台找一个不存在的按钮。
+  return `该链接已在${otherLabel}中：${existing.name}。若要归到「${targetLabel}」，请到管理后台点该行的「切换」按钮。`;
+}
+
+/**
+ * 追加单条导航条目的共用实现（`POST /api/bookmarks` 与 `POST /api/items` 共用）。
  *
  * 设计取舍：外部客户端不应持有完整数据集。若走 `PUT /api/admin/data`，
  * 客户端必须先拉全量（约 57KB）再整体覆盖写回，任何一次并发编辑都会被冲掉。
- * 这里只做「读 → 追加 → 写」，把要写的数据面收敛到一条书签。
+ * 这里只做「读 → 追加 → 写」，把要写的数据面收敛到一条条目。
+ *
+ * 两个路由的差异全部收敛到 options，而不是复制两份实现：
+ *   - `/api/bookmarks`：type 固定 bookmarks，仅在书签内判重（旧扩展的既定契约）
+ *   - `/api/items`    ：type 由客户端选择，且开启跨集合判重
  *
  * 已知限制：KV 没有原子 CAS，同一瞬间的并发追加仍可能互相覆盖
  * （个人导航页的写入频率下可接受，不做分布式锁）。
  *
  * @param {Request} request
+ * @param {{allowAnyType?: boolean, crossCollectionCheck?: boolean}} [options]
  * @returns {Promise<Response>}
  */
-async function handleAddBookmark(request) {
+async function appendNavigationItem(request, options = {}) {
+  const allowAnyType = options.allowAnyType === true;
+  const crossCollectionCheck = options.crossCollectionCheck === true;
+
   let payload;
   try {
     payload = await request.json();
@@ -964,51 +1027,109 @@ async function handleAddBookmark(request) {
     return jsonResponse({ success: false, message: "请求体不是合法的 JSON。" }, 400);
   }
 
+  const type = resolveCollectionType(payload?.type, allowAnyType);
+
   let item;
   try {
     // 忽略客户端传来的 id：本端点是「追加」语义，id 一律由服务端生成，
     // 否则外部客户端可以塞一个与已有条目相同的 id，把数据搞成重复 id。
     const source = payload && typeof payload === "object" ? { ...payload, id: "" } : payload;
-    item = normaliseItem(source, "bookmarks");
+    item = normaliseItem(source, type);
   } catch (error) {
     return jsonResponse({ success: false, message: error.message }, 400);
   }
 
   const navigation = await readNavigationData();
+  const apps = Array.isArray(navigation.apps) ? navigation.apps : [];
+  const bookmarks = Array.isArray(navigation.bookmarks) ? navigation.bookmarks : [];
+  const target = type === "apps" ? apps : bookmarks;
 
   const fingerprint = bookmarkFingerprint(item.url);
   if (fingerprint) {
-    const existing = (navigation.bookmarks || []).find(
-      (entry) => bookmarkFingerprint(entry && entry.url) === fingerprint,
-    );
+    // 1) 目标集合内已有同 URL → 409
+    const existing = target.find((entry) => bookmarkFingerprint(entry && entry.url) === fingerprint);
     if (existing) {
-      const suffix = existing.category ? `（${existing.category}）` : "";
       return jsonResponse(
         {
           success: false,
           duplicate: true,
-          message: `该链接已在书签中：${existing.name}${suffix}`,
+          message: duplicateMessage(type, existing),
           item: existing,
         },
         409,
       );
     }
+
+    // 2) 目标集合没有、但另一个集合有 → 409（仅 /api/items 开启）
+    if (crossCollectionCheck) {
+      const otherType = type === "apps" ? "bookmarks" : "apps";
+      const other = otherType === "apps" ? apps : bookmarks;
+      const crossExisting = other.find(
+        (entry) => bookmarkFingerprint(entry && entry.url) === fingerprint,
+      );
+      if (crossExisting) {
+        return jsonResponse(
+          {
+            success: false,
+            duplicate: true,
+            crossCollection: true,
+            message: crossCollectionMessage(type, otherType, crossExisting),
+            item: crossExisting,
+          },
+          409,
+        );
+      }
+    }
   }
 
-  const bookmarks = (navigation.bookmarks || []).concat([item]);
+  const next = target.concat([item]);
+  // 非目标集合必须原样透传真实数组：写成 undefined 会让 writeNavigationData
+  // 覆盖掉整块数据（KV 里只剩 meta 之外的半个对象），这是不可挽回的丢数据。
   await writeNavigationData({
     settings: navigation.settings,
-    apps: navigation.apps,
-    bookmarks,
+    apps: type === "apps" ? next : apps,
+    bookmarks: type === "bookmarks" ? next : bookmarks,
   });
 
-  console.log(`新增书签：${item.name} <- ${item.url}`);
-  return jsonResponse({
+  console.log(`新增${COLLECTION_LABELS[type]}：${item.name} <- ${item.url}`);
+
+  const body = {
     success: true,
     item,
-    total: bookmarks.length,
+    total: next.length,
     storage: storageMode(),
-  });
+  };
+  // `type` 只对可自选集合的 /api/items 返回，保持旧 /api/bookmarks 响应形状不变
+  if (allowAnyType) {
+    body.type = type;
+  }
+  return jsonResponse(body);
+}
+
+/**
+ * POST /api/bookmarks —— 追加单条书签（浏览器扩展等外部客户端使用）。
+ *
+ * 语义与历史上完全一致：只在书签集合内判重、不跨集合判重、total 为书签总数。
+ * 实现委托给 appendNavigationItem，避免两条路由各写一套查重逻辑。
+ *
+ * @param {Request} request
+ * @returns {Promise<Response>}
+ */
+async function handleAddBookmark(request) {
+  return appendNavigationItem(request, { allowAnyType: false, crossCollectionCheck: false });
+}
+
+/**
+ * POST /api/items —— 追加单条导航条目，类型由客户端选择（应用 / 书签）。
+ *
+ * 与 /api/bookmarks 的唯一差别：允许指定 type，并额外做跨集合判重，
+ * 防止同一个 URL 在导航页的应用区和书签区各出现一次。
+ *
+ * @param {Request} request
+ * @returns {Promise<Response>}
+ */
+async function handleAddItem(request) {
+  return appendNavigationItem(request, { allowAnyType: true, crossCollectionCheck: true });
 }
 
 /**
@@ -1352,6 +1473,13 @@ export async function onRequest(context) {
       const deny = await requireAuth(request);
       if (deny) return deny;
       return await handleAddBookmark(request);
+    }
+
+    // 与 /api/bookmarks 同一份实现，差异仅在「可自选集合 + 跨集合判重」
+    if (path === "/api/items" && method === "POST") {
+      const deny = await requireAuth(request);
+      if (deny) return deny;
+      return await handleAddItem(request);
     }
 
     if (path === "/api/admin/password" && method === "POST") {

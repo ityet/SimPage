@@ -15,6 +15,8 @@ const KEYS = {
   siteUrl: "siteUrl",
   password: "password",
   defaultCategory: "defaultCategory",
+  /** 弹窗「保存到」的上次选择（"bookmarks" | "apps"），记住它省得每次重选 */
+  targetType: "targetType",
   token: "sessionToken",
   tokenExpiresAt: "sessionTokenExpiresAt",
   categories: "cachedCategories",
@@ -69,27 +71,42 @@ export function normaliseSiteUrl(value) {
 }
 
 /**
+ * 校验「保存到」的目标集合。
+ *
+ * 本地存储是跨版本共享的，老版本没有这个 key、用户也可能手改，
+ * 非法值一律回落到书签（旧版唯一能存的类型），避免把请求打成 `type: undefined`。
+ *
+ * @param {*} value
+ * @returns {"apps" | "bookmarks"}
+ */
+function normaliseTargetType(value) {
+  return value === "apps" ? "apps" : "bookmarks";
+}
+
+/**
  * 读取本地配置。
- * @returns {Promise<{siteUrl: string, password: string, defaultCategory: string, categories: string[]}>}
+ * @returns {Promise<{siteUrl: string, password: string, defaultCategory: string, targetType: "apps" | "bookmarks", categories: string[]}>}
  */
 export async function readConfig() {
   const raw = await STORAGE.get([
     KEYS.siteUrl,
     KEYS.password,
     KEYS.defaultCategory,
+    KEYS.targetType,
     KEYS.categories,
   ]);
   return {
     siteUrl: raw[KEYS.siteUrl] || "",
     password: raw[KEYS.password] || "",
     defaultCategory: raw[KEYS.defaultCategory] || "",
+    targetType: normaliseTargetType(raw[KEYS.targetType]),
     categories: Array.isArray(raw[KEYS.categories]) ? raw[KEYS.categories] : [],
   };
 }
 
 /**
  * 写入本地配置（浅合并）。传 `undefined` 的键会被忽略。
- * @param {{siteUrl?: string, password?: string, defaultCategory?: string, categories?: string[]}} patch
+ * @param {{siteUrl?: string, password?: string, defaultCategory?: string, targetType?: "apps" | "bookmarks", categories?: string[]}} patch
  * @returns {Promise<void>}
  */
 export async function saveConfig(patch) {
@@ -283,12 +300,31 @@ export async function fetchCategories() {
 }
 
 /**
- * 追加一条书签。
+ * 追加一条记录到指定集合。
+ *
+ * 统一走 `/api/items`：服务端按 `type` 决定写 apps 还是 bookmarks，
+ * 两条路径的校验 / 重复检测 / 响应结构完全一致，扩展侧不需要分支。
+ * 注意 `category` 只在 type 为 bookmarks 时有意义，调用方应自行剔除。
+ *
+ * @param {"apps" | "bookmarks"} type 目标集合
+ * @param {{name: string, url: string, description?: string, icon?: string, category?: string}} item
+ * @returns {Promise<{success: boolean, type: string, item: object, total: number, storage: string}>}
+ */
+export async function addItem(type, item) {
+  return authedRequest("/api/items", {
+    method: "POST",
+    body: { ...item, type: normaliseTargetType(type) },
+    timeoutMs: 20000,
+  });
+}
+
+/**
+ * 追加一条书签（保留旧签名，避免其它调用点断裂）。
  * @param {{name: string, url: string, description?: string, icon?: string, category?: string}} item
  * @returns {Promise<{item: object, total: number, storage: string}>}
  */
 export async function addBookmark(item) {
-  return authedRequest("/api/bookmarks", { method: "POST", body: item, timeoutMs: 20000 });
+  return addItem("bookmarks", item);
 }
 
 /**

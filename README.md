@@ -10,13 +10,13 @@
 
 - **概览区域**：展示当前时间、日期、问候语及实时天气信息，并提供全局搜索入口，支持亮暗主题切换并可随系统主题自动切换。
 - **应用与书签分区**：两大模块采用自适应 4-5 列网格排布，支持自由缩放，卡片包含图标、名称与描述信息。
-- **后台编辑页面**：无需额外数据库，通过后台页面即可新增、修改或删除应用与书签条目。
+- **后台编辑页面**：无需额外数据库，通过后台页面即可新增、修改或删除应用与书签条目；书签与应用之间还能一键互切（行内「切换」按钮，与其它改动一样点保存后生效）。
 - **后台权限控制**：后台页面需密码登录（默认密码 `admin123`），密码以 PBKDF2 哈希形式存储，可随时在后台修改。
 - **站点信息配置**：可在后台设置网站名称、Logo、自定义问候语以及书签分类，前台实时同步展示。
 - **开放天气服务**：使用完全免费的 Open-Meteo API 获取天气信息，无需注册和 API Key，后台直接填写城市名称即可，可输入多个城市以空格隔开，首页间隔 5 秒滚动显示。
 - **书签分类可配置**：在后台用 `|` 分隔集中配置分类（如 `技术社区|实用工具|知识学习`）。该列表既是录入书签时的候选项（仍可临时输入未列出的分类），也决定**前台书签分组的展示顺序**；未列出的分类排在最后。未配置时自动回退为「从现有书签推导并按名称排序」的旧行为。
 - **KV 数据存储**：导航数据、管理员凭据与访客计数保存在 EdgeOne Makers KV 中，确保高性能与高可用性。
-- **浏览器扩展**：`extension/` 内置 Chrome/Edge 扩展（Manifest V3），点一下工具栏图标即可把当前网页存为书签，自动带出标题、地址与图标。详见 [`extension/README.md`](./extension/README.md)。
+- **浏览器扩展**：`extension/` 内置 Chrome/Edge 扩展（Manifest V3），点一下工具栏图标即可把当前网页存为**书签或应用**（弹窗里可选，且记住上次的选择），自动带出标题、地址与图标。详见 [`extension/README.md`](./extension/README.md)。
 - **图标库选择**：后台编辑与扩展弹窗均内置图标选择器，除「自动获取」站点图标外，还可从 **彩色 Emoji**（自托管的 Twemoji 图形，Unicode 官方分组 1914 个，带中文名与关键词，可直接搜索）中下拉选择。数据由 `tools/build-icon-library.mjs` 从上游生成（详见 [`extension/README.md`](./extension/README.md) 的「图标库数据」「第三方数据」小节），重新生成命令：`node tools/build-icon-library.mjs`。
   - **图标体自托管**：彩色 emoji 的 SVG 体**落盘在本仓库** `public/icons/twemoji/`（构建期从 `@iconify-json/twemoji@1.2.5` 生成，共 1914 个文件 / 约 3.3MB），运行时 URL 是我们自己域名的静态文件（`/icons/twemoji/<slug>.svg`），**没有任何外部 CDN 依赖**。彩色 emoji 在产物里只存 **slug**（由 CLDR 英文注释生成），URL 现拼，避免数据文件从 KB 级涨到 MB 级。⚠️ `public/icons/` 是**构建产物但必须随仓库提交**（部署要用）。
   - **图标批次（v5，首屏提速的关键）**：选择器每屏渲染 120 项，若逐项请求 `/icons/twemoji/x.svg` 就是 **120 个请求**；而 EdgeOne Makers **只走 HTTP/1.1**（同域最多 6 并发），实测首屏要 4.4s 才全部解码、重载后复访（静态资源带 `max-age=0,must-revalidate`）反而更慢到 8.4s。因此构建期把图标体按 **128 个一批**整包内联成 `public/data/emoji-batches/<n>.json`，选择器只取当前屏需要的那一批，用 `data:image/svg+xml,<encodeURIComponent(svg)>` 喂给 `<img>` —— 首屏从 120 个请求降到 **1 个**，且浏览器按批次缓存，往下滚才按需补拉。
@@ -121,27 +121,44 @@ edgeone makers dev --name simpage --skip-env-sync
 | `PUT` | `/api/data` | 同 `/api/admin/data`（旧端点，兼容保留） | 是 |
 | `POST` | `/api/admin/password` | 修改管理员密码 | 是 |
 | `POST` | `/api/fetch-logo` | 调用 `favicon.yy.luler.top` 抓取站点图标，返回 `faviconUrl` 与站点标题/描述 | 是 |
-| `POST` | `/api/bookmarks` | 追加**单条**书签（供浏览器扩展等外部客户端使用） | 是 |
+| `POST` | `/api/items` | 追加**单条**条目到「应用」或「书签」（供浏览器扩展等外部客户端使用） | 是 |
+| `POST` | `/api/bookmarks` | 同 `/api/items`，但固定写入书签（旧端点，兼容保留） | 是 |
 
 鉴权方式：请求头 `Authorization: Bearer <token>`，token 由登录接口返回（32 位十六进制，有效期 12 小时）。
 
-`POST /api/bookmarks` 请求体为单条书签（字段与后台一致）：
+`POST /api/items` 请求体为单条条目（字段与后台一致），`type` 决定写进哪个集合：
 
 ```jsonc
 {
+  "type": "apps",             // 可选：apps | bookmarks，缺省为 bookmarks
   "name": "开源中国",          // 必填
   "url": "https://www.oschina.net/",  // 必填，无协议时自动补 https://
   "description": "",          // 可选
   "icon": "✈️",               // 可选：emoji 或图片地址
-  "category": "技术社区"        // 可选，建议取自 settings.categories
+  "category": "技术社区"        // 可选，仅 bookmarks 生效，建议取自 settings.categories
 }
 ```
 
-成功返回 `{ success: true, item, total, storage }`（`item` 为落库后的完整条目，含服务端生成的 `id`）。
+- `type` **非法值不报错**，按 `bookmarks` 降级处理（客户端版本可能领先于部署版本，硬报 400 只会让用户看到一条无从理解的失败）。`type` 会先 trim + 转小写再匹配，`"  Apps  "` 也识别为 `apps`。
+- `category` 只对书签有意义，写入应用时服务端直接忽略该字段（响应里的 `item` 不含 `category`）。
+- 客户端传来的 `id` 一律被丢弃，`item.id` 始终由服务端生成（避免外部客户端注入重复 id）。
 
-**为什么单独开一个端点**：此时若复用 `PUT /api/admin/data`，外部客户端必须先拉全量（约 57KB）再整体覆盖写回，任何一次并发编辑都会被冲掉。本端点把写入面收敛到一条书签。
+成功返回 `{ success: true, type, item, total, storage }`：`type` 是服务端**最终采用**的集合（不是回显请求值），`item` 为落库后的完整条目，`total` 是**目标集合**的总条数（加到应用就是应用总数）。
 
-按 `url` **查重**（补全协议、host/path 小写、忽略末尾斜杠与 `#`，保留 query 与端口）：命中已有条目时返回 **409** `{ success: false, duplicate: true, message, item }`，`item` 是已存在的那条，便于客户端提示「已在书签中」。
+按 `url` **查重**（补全协议、host/path 小写、忽略末尾斜杠与 `#`，保留 query 与端口），命中时返回 **409**，`item` 是已存在的那条，便于客户端提示：
+
+| 场景 | 响应体 | 区分方式 |
+|------|--------|----------|
+| 目标集合内已有同 URL | `{ success: false, duplicate: true, message, item }` | `duplicate` 为 `true`，无 `crossCollection` |
+| 目标集合没有、但**另一集合**已有同 URL | `{ success: false, duplicate: true, crossCollection: true, message, item }` | `duplicate` 与 `crossCollection` 均为 `true` |
+
+`message` 示例：同集合书签重复为 `该链接已在书签中：开源中国（技术社区）`（分类为空时无括号），应用重复为 `该链接已在应用中：GitHub`；跨集合为 `该链接已在应用中：GitHub。若要归到「书签」，请到管理后台点该行的「切换」按钮。`。
+
+**为什么要跨集合判重**：应用区与书签区在导航页上是两块并列的展示区域，同一个 URL 两边各出现一次会变成两个入口指向同一个站点，是纯视觉噪音。此处不自动搬移（搬哪条是用户的判断），只拒绝写入并给出迁移入口。
+
+**为什么单独开这个端点**：此时若复用 `PUT /api/admin/data`，外部客户端必须先拉全量（约 57KB）再整体覆盖写回，任何一次并发编辑都会被冲掉。本端点把写入面收敛到一条条目。
+
+`POST /api/bookmarks` 是同一实现的旧入口，**行为保持不变**：固定写入书签、只在书签集合内判重（不做跨集合判重）、响应体为 `{ success: true, item, total, storage }`（不含 `type`，`total` 为书签总数）。仍在用旧接口的客户端无需改动。
 
 > 已知限制：KV 无原子 CAS，同一瞬间的并发追加仍可能互相覆盖（个人导航页的写入频率下可接受，未引入分布式锁）。
 

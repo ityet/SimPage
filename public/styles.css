@@ -265,10 +265,6 @@ body.dark-theme .auth-description {
   color: var(--text-secondary);
 }
 
-body.dark-theme .auth-hint {
-  color: rgba(247, 250, 252, 0.45);
-}
-
 body.dark-theme .admin-table-wrapper {
   background: #2C2C2E;
   border-color: transparent;
@@ -343,6 +339,16 @@ body {
   position: relative;
   overflow-x: hidden;
   scroll-behavior: smooth;
+}
+
+/*
+ * 导航主页底部不留白：页脚 .site-footer 自身已有 padding-bottom 作为收尾间距，
+ * body 再垫一层（1280 视口下实测量得 72px）就是纯空白。
+ * 用 :not(.admin-body) 限定作用域 —— 后台共用同一条 body 规则，若一并归零会把它的
+ * 页脚按钮组贴到窗口底边。
+ */
+body:not(.admin-body) {
+  padding-bottom: 0;
 }
 
 body.admin-body {
@@ -1194,12 +1200,6 @@ body.dark-theme .summary-action:focus-visible {
   }
 }
 
-.password-hint {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-}
-
 .password-actions {
   display: flex;
   justify-content: flex-start;
@@ -1342,6 +1342,33 @@ body.dark-theme .summary-action:focus-visible {
   text-align: center;
 }
 
+/* 按列分配宽度：名称给足空间，描述让位，链接保有可读宽度。
+   名称从 34% 收窄到 31%、链接从 24% 放宽到 27%（两者互相让，总和仍 86%，其余列不动）：
+   链接是等宽字体 + break-all，一窄就折成三四行，比名称多折一行更难读。
+   ⚠️ 这里全部是非固定布局（table-layout:auto）下的宽度建议值，不是硬约束：
+   浏览器仍会优先保证内容的最小宽度，所以 sort / actions 的 nowrap（1% + 内容撑开）
+   不会被挤塌。**不要改成 table-layout:fixed** —— 固定布局会把 1% 的 操作列压扁，
+   三颗按钮直接溢出到表格外。 */
+.admin-table th[data-column="name"],
+.admin-table td[data-column="name"] {
+  width: 31%;
+}
+
+.admin-table th[data-column="category"],
+.admin-table td[data-column="category"] {
+  width: 10%;
+}
+
+.admin-table th[data-column="description"],
+.admin-table td[data-column="description"] {
+  width: 18%;
+}
+
+.admin-table th[data-column="url"],
+.admin-table td[data-column="url"] {
+  width: 27%;
+}
+
 .sort-handle {
   display: inline-flex;
   align-items: center;
@@ -1410,6 +1437,14 @@ body.is-sorting {
   gap: 0.5rem;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+/* 操作列并排三颗按钮（切换 / 编辑 / 删除）：不允许收缩或折行，
+   否则窄屏下按钮会被挤成两行，行高跟着抖 */
+.admin-table-actions > button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .admin-item {
@@ -1611,6 +1646,27 @@ body.dark-theme #picker-icon-button,
   color: #c7d2fe;
 }
 
+/* 后台表格里的跨集合「切换」按钮：完全沿用 .secondary-button 的尺寸与交互语汇
+   （同 padding / 圆角 / 字号 / transition），只把色相换成琥珀色，
+   与蓝色「编辑」、红色「删除」形成三级区分，不引入一套新的按钮外观。 */
+.move-button {
+  border-color: rgba(217, 119, 6, 0.32);
+  background: rgba(217, 119, 6, 0.12);
+  color: rgba(180, 83, 9, 0.95);
+}
+
+.move-button:hover,
+.move-button:focus-visible {
+  box-shadow: 0 12px 24px rgba(217, 119, 6, 0.18);
+}
+
+body.dark-theme .move-button,
+:root[data-theme="dark"] .move-button {
+  border-color: rgba(251, 191, 36, 0.4);
+  background: rgba(251, 191, 36, 0.16);
+  color: #fcd34d;
+}
+
 /* 图标字段的 24×24 预览位：容器（非 <img>），图片 object-fit、emoji 直接文本居中。
    选择器用 .field .icon-field-preview 提高优先级，盖过上面的 .field span 规则。 */
 .field .icon-field-preview {
@@ -1795,14 +1851,22 @@ body.dark-theme #picker-icon-button,
   flex-wrap: wrap;
 }
 
+/* 这套外观同时被 <button> 与 <a> 使用（页脚的「返回导航」是 <a>：导航跳转，
+   要支持右键新标签打开）。inline-flex + 居中让两者高度与内边距完全一致，
+   不依赖 <a> 的默认 display:inline 基线；text-decoration 显式清掉链接下划线。 */
 .ghost-button,
 .primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 0.95rem;
   font-weight: 600;
   border-radius: 14px;
   padding: 0.7rem 1.6rem;
   cursor: pointer;
   border: none;
+  text-decoration: none;
+  white-space: nowrap;
   transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
 }
 
@@ -1880,12 +1944,6 @@ body.dark-theme #picker-icon-button,
   margin: 0;
   color: rgba(31, 41, 55, 0.7);
   font-size: 0.95rem;
-}
-
-.auth-hint {
-  margin: 0;
-  font-size: 0.85rem;
-  color: rgba(31, 41, 55, 0.6);
 }
 
 .form-error {
@@ -1990,6 +2048,77 @@ body.dark-theme #picker-icon-button,
   font-size: 0.82rem;
   line-height: 1.5;
   color: var(--warning);
+}
+
+/* 纯信息性提示（比如「移到书签」弹窗的摘要与说明）：
+   .modal-hint 自带琥珀色，是「降级/警告」语气，用在说明文字上会被误读成出错了。
+   颜色交给变量，深色主题下 body.dark-theme 已重定义 --text-secondary，无需另写规则 */
+.modal-hint-neutral {
+  color: var(--text-secondary);
+}
+
+/* 「移到书签」弹窗的分类 chip：沿用 .secondary-button 的 padding / 圆角 / 字号 / transition，
+   中性底色，选中态用主色描边 + 浅底，不另立一套按钮外观 */
+.category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* .category-chips 自带 display:flex，会盖过 UA 的 [hidden]{display:none}；
+   没有候选时整块要真的消失，必须显式补这一条 */
+.category-chips[hidden] {
+  display: none;
+}
+
+.category-chip {
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-secondary);
+  padding: 0.35rem 0.75rem;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease,
+    background 160ms ease, color 160ms ease;
+}
+
+.category-chip:hover {
+  border-color: rgba(59, 130, 246, 0.4);
+  color: var(--text-primary);
+}
+
+.category-chip.is-active {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.12);
+  color: rgba(37, 99, 235, 0.95);
+}
+
+.category-chip:focus-visible {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.16);
+}
+
+body.dark-theme .category-chip,
+:root[data-theme="dark"] .category-chip {
+  border-color: rgba(148, 163, 184, 0.36);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 232, 240, 0.85);
+}
+
+body.dark-theme .category-chip:hover,
+:root[data-theme="dark"] .category-chip:hover {
+  color: #f8fafc;
+}
+
+body.dark-theme .category-chip.is-active,
+:root[data-theme="dark"] .category-chip.is-active {
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(59, 130, 246, 0.22);
+  color: #bfdbfe;
 }
 
 body.modal-open {

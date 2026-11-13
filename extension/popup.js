@@ -5,10 +5,10 @@
  *   1. 读本地配置，未配置则引导去设置页
  *   2. 取当前标签页，注入脚本抓取标题 / 描述 / 图标
  *   3. 回填表单，异步刷新分类候选（失败静默）
- * 保存：POST /api/bookmarks —— 只追加一条，不需要持有完整数据集。
+ * 保存：POST /api/items —— 按「保存到」的选择写入书签或应用，只追加一条，不需要持有完整数据集。
  */
 
-import { ApiError, addBookmark, fetchCategories, fetchLogo, readConfig } from "./lib/api.js";
+import { ApiError, addItem, fetchCategories, fetchLogo, readConfig, saveConfig } from "./lib/api.js";
 // 图标库数据与选择器：均为 tools/build-icon-library.mjs 的生成产物（icon-picker.js 与网页端逐字节一致）
 import { ICON_LIBRARY } from "./lib/icon-data.js";
 import { openIconPicker } from "./lib/icon-picker.js";
@@ -39,6 +39,10 @@ const els = {
   icon: document.getElementById("field-icon"),
   category: document.getElementById("field-category"),
   categoryOptions: document.getElementById("category-options"),
+  categoryWrap: document.getElementById("field-category-wrap"),
+
+  targetSegmented: document.getElementById("target-segmented"),
+  targetButtons: Array.from(document.querySelectorAll("#target-segmented .segment")),
 
   pickIconLink: document.getElementById("pick-icon-link"),
   pickIconButton: document.getElementById("pick-icon-button"),
@@ -53,6 +57,8 @@ const els = {
 const state = {
   siteUrl: "",
   saved: false,
+  /** 保存目标：bookmarks = 导航条书签，apps = 首页应用卡片 */
+  targetType: "bookmarks",
   /** 当前标签页自带图标，图标清空时用于预览回退 */
   tabIcon: "",
 };
@@ -222,6 +228,67 @@ function setBusy(busy) {
 function setPickerEnabled(enabled) {
   if (els.pickIconLink) els.pickIconLink.disabled = !enabled;
   if (els.pickIconButton) els.pickIconButton.disabled = !enabled;
+}
+
+// =================================================================================
+// 保存目标（书签 / 应用）
+// =================================================================================
+
+/**
+ * 切换「保存到」并同步表单可见性。
+ *
+ * 切到「应用」时分类字段既隐藏又 disabled：
+ *   - 只隐藏不禁用，字段里的值仍会被 handleSave 读走；
+ *   - 用 disabled 而不是在保存时判断元素可见性 —— 前者由浏览器统一保证「禁用控件不会参与提交」，
+ *     也顺手把该行的 datalist 联动掐断，语义比「靠 CSS 判断」干净。
+ * 切回书签时恢复，用户之前填的分类还在，不会丢。
+ *
+ * @param {"apps" | "bookmarks"} type
+ * @param {{persist?: boolean}} [options] persist 为 true 时把选择写回本地（记住上次选择）
+ */
+function setTargetType(type, { persist = true } = {}) {
+  const next = type === "apps" ? "apps" : "bookmarks";
+  state.targetType = next;
+
+  els.targetButtons.forEach((button) => {
+    const active = button.dataset.type === next;
+    button.setAttribute("aria-checked", active ? "true" : "false");
+    // roving tabindex：整组只占一个 Tab 位，组内换项用方向键（见 handleTargetKeydown）
+    button.tabIndex = active ? 0 : -1;
+  });
+
+  const isBookmark = next === "bookmarks";
+  if (els.categoryWrap) els.categoryWrap.hidden = !isBookmark;
+  if (els.category) els.category.disabled = !isBookmark;
+
+  if (persist) {
+    // 记住偏好只是顺手优化，写失败不该影响本次保存，故静默吞掉
+    saveConfig({ targetType: next }).catch(() => {});
+  }
+}
+
+/**
+ * 分段控件的键盘操作：左右 / 上下方向键切换选项。
+ *
+ * role="radiogroup" + role="radio" 只是把语义告诉读屏，键盘行为要自己补
+ * （原生 radio 那套方向键切项不会自动继承过来）。只有两项，任一方向都是「切到另一个」，
+ * 因此不需要再区分正反向。
+ *
+ * @param {KeyboardEvent} event
+ */
+function handleTargetKeydown(event) {
+  const isArrow =
+    event.key === "ArrowLeft" ||
+    event.key === "ArrowUp" ||
+    event.key === "ArrowRight" ||
+    event.key === "ArrowDown";
+  if (!isArrow) return;
+
+  event.preventDefault();
+  const next = state.targetType === "bookmarks" ? "apps" : "bookmarks";
+  setTargetType(next);
+  const activeButton = els.targetButtons.find((button) => button.dataset.type === next);
+  if (activeButton) activeButton.focus();
 }
 
 // =================================================================================
@@ -448,10 +515,18 @@ async function main() {
 
   fillForm(info, defaultCategory);
   renderCategoryOptions(config.categories);
+  // 恢复上次选的保存目标；此处不写回本地，避免「只是打开弹窗」也被记成一次切换
+  setTargetType(config.targetType, { persist: false });
   showView("form");
 
   els.save.addEventListener("click", handleSave);
   els.refetch.addEventListener("click", handleRefetch);
+  els.targetButtons.forEach((button) => {
+    button.addEventListener("click", () => setTargetType(button.dataset.type));
+  });
+  if (els.targetSegmented) {
+    els.targetSegmented.addEventListener("keydown", handleTargetKeydown);
+  }
   els.icon.addEventListener("input", () => {
     els.icon.title = els.icon.value.trim();
     renderIconPreview(els.icon.value.trim() || state.tabIcon || "");
@@ -483,7 +558,27 @@ async function main() {
 // =================================================================================
 
 /**
- * 保存书签。
+ * 拼保存成功提示。两种目标集合的文案措辞不同（「N 个应用」/「N 条书签 · 分类」），
+ * 让用户一眼确认存到了哪儿，而不用去导航页找。
+ *
+ * @param {{type?: string, item?: object, total?: number}} result 服务端返回
+ * @param {"apps" | "bookmarks"} savedType 服务端最终落库的集合（不是本地选择值，见 handleSave）
+ * @returns {string}
+ */
+function successMessageOf(result, savedType) {
+  const total = Number(result && result.total);
+  const count = Number.isFinite(total) ? total : 0;
+
+  if (savedType !== "bookmarks") {
+    return `已添加到 SimPage · 应用，当前共 ${count} 个应用。`;
+  }
+  const category = (result && result.item && result.item.category) || "";
+  const categoryPart = category ? ` · ${category}` : "";
+  return `已添加到 SimPage · 书签${categoryPart}，当前共 ${count} 条书签。`;
+}
+
+/**
+ * 保存到当前选中的集合（书签或应用）。
  */
 async function handleSave() {
   if (state.saved) return;
@@ -501,21 +596,33 @@ async function handleSave() {
     return;
   }
 
+  const type = state.targetType;
+  const isBookmark = type === "bookmarks";
+
   setBusy(true);
   setStatus("正在保存…", "info");
 
   try {
-    const result = await addBookmark({
+    const payload = {
       name: sanitiseText(name, NAME_MAX),
       url,
       description: sanitiseText(els.description.value, DESCRIPTION_MAX),
       icon: els.icon.value.trim(),
-      category: sanitiseText(els.category.value, CATEGORY_MAX),
-    });
+    };
+    // 分类只属于书签：应用模式下压根不带这个字段（服务端不需要、也不想让库里多出无意义的空串）
+    if (isBookmark) {
+      payload.category = sanitiseText(els.category.value, CATEGORY_MAX);
+    }
+
+    const result = await addItem(type, payload);
+
+    // 提示文案以**服务端返回的 type** 为准：服务端才是最终落库的集合
+    // （未知值会被降级为 bookmarks），用本地选择值拼文案在降级场景下会报错集合。
+    const savedType =
+      result && (result.type === "apps" || result.type === "bookmarks") ? result.type : type;
 
     state.saved = true;
-    const category = result.item && result.item.category ? ` · ${result.item.category}` : "";
-    setStatus(`已添加到 SimPage${category}，当前共 ${result.total} 条书签。`, "success");
+    setStatus(successMessageOf(result, savedType), "success");
     els.openSite.href = state.siteUrl;
     els.openSite.hidden = false;
     setBusy(false);
@@ -523,6 +630,9 @@ async function handleSave() {
     setBusy(false);
 
     if (error instanceof ApiError && error.code === "duplicate") {
+      // 两种重复都按「警告」呈现而不是失败：同集合重复是「已经有了」，
+      // 跨集合重复（crossCollection）时服务端 message 已写明「请到管理后台点该行的『切换』按钮」，
+      // 用户还有下一步可走，用红色报错会让人以为保存出错了。
       setStatus(error.message, "warning");
       return;
     }

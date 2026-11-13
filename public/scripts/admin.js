@@ -32,6 +32,17 @@ if (modalCategoryField && modalCategoryPlaceholder && modalCategoryField.parentN
 const modalCancelButton = document.getElementById("editor-cancel-button");
 const modalCloseButton = document.getElementById("editor-close-button");
 const modalOverlay = document.getElementById("editor-modal-overlay");
+// 「应用 → 书签」的分类选择弹窗（移回应用不需要分类，走不到这些节点）
+const moveModal = document.getElementById("move-modal");
+const moveOverlay = document.getElementById("move-modal-overlay");
+const moveForm = document.getElementById("move-form");
+const moveTitle = document.getElementById("move-modal-title");
+const moveSummary = document.getElementById("move-modal-summary");
+const moveCategoryInput = document.getElementById("move-category");
+const moveCategoryChips = document.getElementById("move-category-chips");
+const moveCancelButton = document.getElementById("move-cancel-button");
+const moveCloseButton = document.getElementById("move-close-button");
+const moveConfirmButton = document.getElementById("move-confirm-button");
 const siteNameInput = document.getElementById("site-name");
 const siteLogoInput = document.getElementById("site-logo");
 const siteGreetingInput = document.getElementById("site-greeting");
@@ -122,6 +133,8 @@ const state = {
 let authToken = "";
 let isDirty = false;
 let modalContext = null;
+// 「移回书签」弹窗的上下文；未打开时为 null。存放 { index, name }。
+let moveContext = null;
 // 拖拽排序进行中的上下文；未拖拽时为 null。存放 { type, index }。
 let draggingContext = null;
 
@@ -662,15 +675,17 @@ function renderList(type, container, items) {
 }
 
 /**
- * 刷新分类候选（datalist）。
+ * 推导分类候选（已去重、已排序，保持配置的先后顺序）。
  *
  * 优先使用「站点信息」里配置的分类，并保持配置的先后顺序；数据里已存在、
  * 但配置未覆盖的分类追加在后，避免历史数据在候选里消失。若完全没有配置
  * （老数据或管理员主动清空），则回退为改动前的行为：全部取自现有书签并按名称排序。
+ *
+ * datalist 与「移到书签」弹窗的 chip 共用这一处推导 —— 两处各写一套必然会漂移。
+ *
+ * @returns {string[]}
  */
-function updateCategorySuggestions() {
-  if (!categorySuggestions) return;
-
+function collectCategoryCandidates() {
   const configured = parseCategoryList(state.settings?.categories);
   const seen = new Set(configured.map((label) => label.toLowerCase()));
   const extras = [];
@@ -685,9 +700,17 @@ function updateCategorySuggestions() {
   });
 
   const tail = configured.length ? extras : extras.sort((a, b) => a.localeCompare(b, "zh-CN"));
+  return [...configured, ...tail];
+}
+
+/**
+ * 刷新分类候选（datalist）。
+ */
+function updateCategorySuggestions() {
+  if (!categorySuggestions) return;
 
   const fragment = document.createDocumentFragment();
-  [...configured, ...tail].forEach((label) => {
+  collectCategoryCandidates().forEach((label) => {
     const option = document.createElement("option");
     option.value = label;
     fragment.appendChild(option);
@@ -798,8 +821,10 @@ function createNameCell(type, item, index) {
   const iconContent = String(item.icon || "").trim();
   if (iconContent.startsWith("http://") || iconContent.startsWith("https://") || iconContent.startsWith("data:")) {
     const img = document.createElement("img");
-    img.src = iconContent;
+    // 监听必须在赋 src 之前挂好：命中缓存/立即失败时 error 可能同步派发，晚挂就漏了
+    img.addEventListener("error", () => applyFallbackIcon(iconWrapper, displayName), { once: true });
     img.alt = `${displayName} 图标`;
+    img.src = iconContent;
     iconWrapper.appendChild(img);
   } else if (iconContent) {
     iconWrapper.textContent = iconContent.slice(0, 4);
@@ -830,6 +855,22 @@ function createActionCell(type, index) {
     openEditor(type, index);
   });
 
+  // 跨集合切换：书签行切到应用，应用行切到书签。两种行文案统一为「切换」，
+  // 具体切去哪边由行的类型决定，所以补 title / aria-label 说清楚方向 —— 单看「切换」不知道切什么。
+  // 排在编辑之前：它是行上最常点的动作；删除是不可逆操作，永远排在最后一位以减少误点。
+  const targetType = type === "bookmarks" ? "apps" : "bookmarks";
+  const moveButton = document.createElement("button");
+  moveButton.type = "button";
+  moveButton.className = "secondary-button move-button";
+  moveButton.textContent = "切换";
+  moveButton.title = `把这条${typeLabels[type]}移到${typeLabels[targetType]}列表末尾（不点保存不会生效）`;
+  moveButton.setAttribute("aria-label", `把这条${typeLabels[type]}切换到${typeLabels[targetType]}`);
+  moveButton.addEventListener("click", (event) => {
+    // 整行点击会打开编辑弹窗，按钮上的点击必须截断
+    event.stopPropagation();
+    handleTransfer(type, index);
+  });
+
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
   deleteButton.className = "delete-button";
@@ -839,6 +880,7 @@ function createActionCell(type, index) {
     handleDelete(type, index);
   });
 
+  actions.appendChild(moveButton);
   actions.appendChild(editButton);
   actions.appendChild(deleteButton);
   return actions;
@@ -916,6 +958,22 @@ function createSortHandle(type, index) {
   });
 
   return handle;
+}
+
+/**
+ * 图标加载失败时的统一兜底：把容器整体降级成「名称首字符」占位。
+ *
+ * 只把 <img> 隐藏/变透明是不够的 —— 裂图标记与 alt 文本由浏览器绘制，
+ * 元素还照旧占位。所以这里清空子节点、换成纯文本，让「拿不到图」与
+ * 「本来就没有图标」走完全相同的渲染路径（同一个 deriveFallbackIcon）。
+ *
+ * @param {HTMLElement} container 承载图标的容器（后台列表传 .admin-item-icon）
+ * @param {string} name 条目名称，取其首字符；空名称时 deriveFallbackIcon 回落 ★
+ * @returns {void}
+ */
+function applyFallbackIcon(container, name) {
+  if (!container) return;
+  replaceChildrenSafe(container, document.createTextNode(deriveFallbackIcon(name)));
 }
 
 function deriveFallbackIcon(name) {
@@ -1138,6 +1196,232 @@ function moveCollectionItem(type, fromIndex, toIndex) {
   const [moved] = list.splice(fromIndex, 1);
   list.splice(target, 0, moved);
   return true;
+}
+
+/**
+ * 把一条记录在「书签 ↔ 应用」之间搬家（原地修改 state，两个集合共用同一套字段）。
+ *
+ * 与 moveCollectionItem 的区别：那是**集合内**排序，这是**跨集合**迁移，两者不可合并。
+ *
+ * 几个刻意的取舍：
+ *   - 追加到目标集合**末尾**而非开头：符合「新增一条」的直觉，也不会把用户已经排好的顺序整体顶掉。
+ *   - **保留原 id**：服务端 PUT 只在 id 为空时才生成新 id，保留可避免同一条记录出现前后端两个 id。
+ *   - category 只属于书签：移到应用时整个丢掉（payload 里带无意义字段只会让服务端多写一个 key），
+ *     移回书签时补空串（让分类列渲染成「—」而不是 undefined）。
+ *   - 入参非法 / 越界一律返回 false 而不抛错：调用方是按钮点击，静默失败比弹异常更合理。
+ *
+ * @param {"apps" | "bookmarks"} fromType 源集合
+ * @param {number} index 源集合中的索引
+ * @param {string} [category] 移到书签时写入的子分类；缺省或非字符串一律按空串（不分类）
+ * @returns {boolean} 是否真的搬动了
+ */
+function transferCollectionItem(fromType, index, category) {
+  const toType = fromType === "bookmarks" ? "apps" : fromType === "apps" ? "bookmarks" : "";
+  if (!toType) return false;
+
+  const fromList = state[fromType];
+  const toList = state[toType];
+  if (!Array.isArray(fromList) || !Array.isArray(toList)) return false;
+  if (!Number.isInteger(index) || index < 0 || index >= fromList.length) return false;
+
+  const [item] = fromList.splice(index, 1);
+  if (!item || typeof item !== "object") {
+    // 摘到的是脏数据，原样塞回原位，避免一次误点就把记录弄丢
+    if (item !== undefined) fromList.splice(index, 0, item);
+    return false;
+  }
+
+  // 浅拷贝即可：两个集合的字段完全同构（id/name/url/description/icon），
+  // 只有 category 需要增删，没必要深拷贝。
+  const moved = { ...item };
+  if (toType === "bookmarks") {
+    // 第三参缺省（旧调用点）等同于空串：不分类，与加弹窗之前的行为一致
+    moved.category = typeof category === "string" ? category.trim() : "";
+  } else {
+    delete moved.category;
+  }
+
+  toList.push(moved);
+  return true;
+}
+
+/**
+ * 处理行内「切换」按钮的点击（把这条记录切到另一个集合）。
+ *
+ * 两条路径的差别来自数据模型：分类只属于书签，所以「切到应用」没什么可选，
+ * 直接搬；「切到书签」得先问一句子分类，否则被搬过去的条目会掉进无分类区。
+ *
+ * 两条路径都只改本地 state，**不点保存不落库**（与编辑、删除、排序一致）。
+ * 都不加二次确认 —— 切换可逆，confirm 只会打断操作流。
+ *
+ * @param {"apps" | "bookmarks"} fromType 源集合
+ * @param {number} index 源集合中的索引
+ */
+function handleTransfer(fromType, index) {
+  if (fromType === "apps") {
+    // 先弹窗收集分类，此刻不动 state —— 用户可能取消
+    openMoveDialog(index);
+    return;
+  }
+  if (fromType !== "bookmarks") return;
+
+  const toType = "apps";
+  if (!transferCollectionItem(fromType, index)) return;
+
+  // 追加在末尾，所以新位置恒为「目标集合长度 - 1」
+  const toIndex = state[toType].length - 1;
+  render();
+  markDirty();
+  setStatus(`已从「${typeLabels[fromType]}」移到「${typeLabels[toType]}」，记得保存修改。`, "neutral");
+  // 重绘后 DOM 已重建，必须重新查询；focusSortHandle 两个集合都支持
+  focusSortHandle(toType, toIndex);
+}
+
+/**
+ * 打开「移到书签」弹窗。
+ *
+ * 不做任何 state 改动：用户点取消就该什么都没发生。分类输入框每次都清空 ——
+ * 应用本身没有分类，上一次填的值跟这一条无关，留着只会被误解成「已选」。
+ *
+ * @param {number} index 应用集合中的索引
+ */
+function openMoveDialog(index) {
+  const apps = state.apps;
+  if (!Array.isArray(apps)) return;
+  if (!Number.isInteger(index) || index < 0 || index >= apps.length) return;
+
+  const item = apps[index];
+  if (!item || typeof item !== "object") return;
+
+  const rawName = typeof item.name === "string" ? item.name.trim() : "";
+  const name = rawName || `应用 ${index + 1}`;
+  moveContext = { index, name };
+
+  if (moveSummary) {
+    moveSummary.textContent = `把「${name}」移到书签列表，请选择子分类。`;
+  }
+  if (moveTitle) {
+    moveTitle.textContent = "移到书签";
+  }
+  if (moveConfirmButton) {
+    // 文案跟 typeLabels 走，改集合叫法时不必再回来改 HTML
+    moveConfirmButton.textContent = `移到${typeLabels.bookmarks}`;
+  }
+  if (moveCategoryInput) {
+    moveCategoryInput.value = "";
+  }
+  renderMoveCategoryChips();
+
+  if (!moveModal) return;
+  moveModal.hidden = false;
+  moveModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  if (moveCategoryInput) {
+    moveCategoryInput.focus();
+    moveCategoryInput.select();
+  }
+}
+
+/**
+ * 关闭「移到书签」弹窗。
+ *
+ * 不重置输入框的值：下次打开会主动清空，在这里再清一次只是多一处状态要维护。
+ */
+function closeMoveDialog() {
+  if (moveModal) {
+    moveModal.hidden = true;
+    moveModal.setAttribute("aria-hidden", "true");
+  }
+  // 编辑弹窗可能同时开着吗？不会 —— 但 body.modal-open 是共享的，
+  // 只在编辑弹窗也关着时才移除，避免把仍在打开的弹窗的滚动锁解掉。
+  if (!modal || modal.hidden) {
+    document.body.classList.remove("modal-open");
+  }
+  moveContext = null;
+}
+
+/**
+ * 把输入框的当前值与 chip 的选中态对齐。
+ *
+ * 单独抽出来是因为它有三个触发点（渲染后、input 时、点击 chip 后），
+ * 三处各写一遍去重逻辑很容易漂移。
+ */
+function syncMoveCategoryChips() {
+  if (!moveCategoryChips) return;
+  const current = moveCategoryInput ? moveCategoryInput.value.trim() : "";
+  const activeKey = current.toLowerCase();
+  moveCategoryChips.querySelectorAll(".category-chip").forEach((chip) => {
+    const value = chip.dataset.category || "";
+    const isActive = value.toLowerCase() === activeKey;
+    chip.classList.toggle("is-active", isActive);
+    chip.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+
+/**
+ * 渲染「移到书签」弹窗的分类 chip。
+ *
+ * 候选与 datalist 同源同序（见 collectCategoryCandidates），第一位固定是「不分类」，
+ * 让「我不想归类」也有明确入口，而不用去猜「留空」是什么意思。
+ */
+function renderMoveCategoryChips() {
+  if (!moveCategoryChips) return;
+
+  const candidates = collectCategoryCandidates();
+  const fragment = document.createDocumentFragment();
+
+  [{ label: "不分类", value: "" }, ...candidates.map((label) => ({ label, value: label }))].forEach(
+    (entry) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "category-chip";
+      chip.dataset.category = entry.value;
+      chip.textContent = entry.label;
+      chip.setAttribute("aria-pressed", "false");
+      chip.addEventListener("click", () => {
+        if (moveCategoryInput) {
+          moveCategoryInput.value = entry.value;
+          // 点 chip 后焦点回到输入框：接着手输或直接回车确认都顺手
+          moveCategoryInput.focus();
+        }
+        syncMoveCategoryChips();
+      });
+      fragment.appendChild(chip);
+    },
+  );
+
+  replaceChildrenSafe(moveCategoryChips, fragment);
+  // 候选为空时只剩「不分类」一颗，给不出任何帮助反而像占位，索性整块收起
+  moveCategoryChips.hidden = candidates.length === 0;
+  syncMoveCategoryChips();
+}
+
+/**
+ * 确认「移到书签」。
+ *
+ * 顺序很关键：先 render() 再 closeMoveDialog() 并 focusSortHandle ——
+ * 焦点要落在**重绘后**的新行手柄上，反过来会把焦点丢给已被替换掉的旧 DOM。
+ *
+ * @param {SubmitEvent} event
+ */
+function handleMoveConfirm(event) {
+  if (event) event.preventDefault();
+  if (!moveContext) return;
+
+  const category = moveCategoryInput ? moveCategoryInput.value.trim() : "";
+  const ok = transferCollectionItem("apps", moveContext.index, category);
+  if (!ok) {
+    closeMoveDialog();
+    setStatus("该条目已不存在，请刷新后重试。", "error");
+    return;
+  }
+
+  const toIndex = state.bookmarks.length - 1;
+  render();
+  markDirty();
+  setStatus(`已从「应用」移到「书签」${category ? ` · ${category}` : ""}，记得保存修改。`, "neutral");
+  focusSortHandle("bookmarks", toIndex);
+  closeMoveDialog();
 }
 
 /**
@@ -1903,8 +2187,42 @@ function bindEvents() {
     });
   }
 
+  // 「移到书签」弹窗：三条退出路径（取消 / 右上角关闭 / 点遮罩）+ 回车提交 + chip 联动
+  if (moveForm) {
+    moveForm.addEventListener("submit", handleMoveConfirm);
+  }
+
+  if (moveCancelButton) {
+    moveCancelButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeMoveDialog();
+    });
+  }
+
+  if (moveCloseButton) {
+    moveCloseButton.addEventListener("click", () => {
+      closeMoveDialog();
+    });
+  }
+
+  if (moveOverlay) {
+    moveOverlay.addEventListener("click", () => {
+      closeMoveDialog();
+    });
+  }
+
+  if (moveCategoryInput) {
+    moveCategoryInput.addEventListener("input", syncMoveCategoryChips);
+  }
+
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && modal && !modal.hidden) {
+    if (event.key !== "Escape") return;
+    // 谁开着关谁；两个弹窗理论上不会并存，仍按「移书签优先」从栈顶往下判
+    if (moveModal && !moveModal.hidden) {
+      closeMoveDialog();
+      return;
+    }
+    if (modal && !modal.hidden) {
       closeEditor();
     }
   });

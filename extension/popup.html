@@ -31,7 +31,7 @@
       <section class="panel" id="view-unconfigured" hidden>
         <p class="lead">还没有连接 SimPage</p>
         <p class="muted">
-          填入站点地址与管理员密码后，点一下工具栏图标就能把当前网页存为书签。
+          填入站点地址与管理员密码后，点一下工具栏图标就能把当前网页存为书签或应用。
         </p>
         <button type="button" class="primary" id="goto-options">去设置</button>
       </section>
@@ -49,6 +49,39 @@
           <div class="page-text">
             <div class="page-title" id="page-title">—</div>
             <div class="page-url" id="page-url">—</div>
+          </div>
+        </div>
+
+        <!-- 保存目标：书签（导航条）还是应用（卡片区）。分段控件而非原生 radio，
+             因为原生 radio 的圆点无法整套自定义，与弹窗的圆角语汇对不上。 -->
+        <div class="field">
+          <span class="label" id="target-label">保存到</span>
+          <div
+            class="segmented"
+            id="target-segmented"
+            role="radiogroup"
+            aria-labelledby="target-label"
+          >
+            <button
+              type="button"
+              class="segment"
+              id="target-bookmarks"
+              role="radio"
+              aria-checked="true"
+              data-type="bookmarks"
+            >
+              书签
+            </button>
+            <button
+              type="button"
+              class="segment"
+              id="target-apps"
+              role="radio"
+              aria-checked="false"
+              data-type="apps"
+            >
+              应用
+            </button>
           </div>
         </div>
 
@@ -78,7 +111,8 @@
           </div>
         </div>
 
-        <label class="field">
+        <!-- 分类只属于书签：「应用」模式下整块隐藏，见 popup.js 的 setTargetType -->
+        <label class="field" id="field-category-wrap">
           <span class="label">分类</span>
           <input type="text" id="field-category" list="category-options" maxlength="24" placeholder="可选" autocomplete="off" />
         </label>

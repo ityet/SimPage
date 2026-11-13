@@ -150,7 +150,6 @@
               />
             </div>
           </div>
-          <p class="password-hint">首次使用默认密码：admin123。修改密码后请妥善保存。</p>
           <p class="password-message" id="password-message" role="status" aria-live="polite" hidden></p>
           <div class="password-actions">
             <button type="submit" class="primary-button" id="password-submit">更新密码</button>
@@ -183,6 +182,7 @@
       <section class="admin-actions glass">
         <div class="status" id="status-bar" role="status">等待操作</div>
         <div class="action-buttons">
+          <a class="ghost-button" id="back-to-nav-button" href="/">返回导航</a>
           <button type="button" class="ghost-button" id="back-to-apps-button">回到应用</button>
           <button type="button" class="ghost-button" id="back-to-bookmarks-button">回到书签</button>
           <button type="button" class="ghost-button" id="reload-button">放弃更改</button>
@@ -252,6 +252,38 @@
       </div>
     </div>
 
+    <!-- 移到书签时选择子分类：分类只属于书签，所以只有「应用 → 书签」需要这一步 -->
+    <div class="modal" id="move-modal" hidden aria-hidden="true">
+      <div class="modal-overlay" id="move-modal-overlay" aria-hidden="true"></div>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="move-modal-title">
+        <form class="modal-form" id="move-form">
+          <header class="modal-header">
+            <h2 id="move-modal-title">移到书签</h2>
+            <button type="button" class="modal-close" id="move-close-button" aria-label="关闭">×</button>
+          </header>
+          <div class="modal-body">
+            <p class="modal-hint modal-hint-neutral" id="move-modal-summary"></p>
+            <div class="field">
+              <span>子分类</span>
+              <input
+                type="text"
+                id="move-category"
+                list="category-suggestions"
+                autocomplete="off"
+                placeholder="留空则不分类"
+              />
+            </div>
+            <div class="category-chips" id="move-category-chips" hidden></div>
+            <p class="modal-hint modal-hint-neutral">候选来自「站点信息」里的分类配置，也可以直接输入新分类。</p>
+          </div>
+          <footer class="modal-footer">
+            <button type="button" class="ghost-button" id="move-cancel-button">取消</button>
+            <button type="submit" class="primary-button" id="move-confirm-button">移到书签</button>
+          </footer>
+        </form>
+      </div>
+    </div>
+
     <div class="auth-overlay" id="auth-overlay">
       <form class="auth-card glass" id="login-form" aria-labelledby="login-title">
         <h2 id="login-title">后台登录</h2>
@@ -268,7 +300,6 @@
           />
         </div>
         <button type="submit" class="primary-button">登录</button>
-        <p class="auth-hint">首次使用默认密码：admin123</p>
       </form>
     </div>
   </body>
