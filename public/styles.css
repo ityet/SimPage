@@ -1369,6 +1369,31 @@ body.dark-theme .summary-action:focus-visible {
   width: 27%;
 }
 
+/* 应用表专属：描述列收窄，链接列放宽（链接是等宽字体 + break-all，多给宽度少折行） */
+.admin-table-apps th[data-column="description"],
+.admin-table-apps td[data-column="description"] {
+  width: 12%;
+}
+
+.admin-table-apps th[data-column="url"],
+.admin-table-apps td[data-column="url"] {
+  width: 33%;
+}
+
+/* 书签表专属：名称列收窄，腾出的空间由描述/链接列自动吸收 */
+.admin-table-bookmarks th[data-column="name"],
+.admin-table-bookmarks td[data-column="name"] {
+  width: 20%;
+}
+
+/* 描述列最多展示 3 行，超出显示省略号，完整内容靠单元格 title 悬停查看 */
+.admin-table .description-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
 .sort-handle {
   display: inline-flex;
   align-items: center;

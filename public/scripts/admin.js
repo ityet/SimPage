@@ -769,7 +769,14 @@ function buildTableRow(type, item, index, columns) {
       }
       case "description": {
         const description = typeof item.description === "string" ? item.description.trim() : "";
-        cell.textContent = description || "—";
+        const text = document.createElement("span");
+        text.className = "description-text";
+        text.textContent = description || "—";
+        cell.appendChild(text);
+        // 悬停时显示完整描述（表格里最多只展示 3 行）
+        if (description) {
+          cell.title = description;
+        }
         break;
       }
       case "url": {
