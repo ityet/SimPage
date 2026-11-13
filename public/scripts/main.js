@@ -114,7 +114,7 @@ const originalData = {
 };
 
 let currentSearchTarget = "web";
-let activeCollection = "apps";
+let activeCollection = "bookmarks";
 
 const searchEngineBuilders = {
   google: (query) => `https://www.google.com/search?q=${encodeURIComponent(query)}`,

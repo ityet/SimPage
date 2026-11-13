@@ -148,7 +148,7 @@
       <section class="grid-section glass" aria-labelledby="collections-title">
         <div class="section-header section-header-with-toggle">
           <div>
-            <h2 id="collections-title">资源</h2>
+            <h2 id="collections-title">应用资源</h2>
             <p>我的在线应用与收藏站点</p>
           </div>
           <div
@@ -161,50 +161,50 @@
               type="button"
               class="collection-toggle-button is-active"
               role="tab"
-              id="apps-tab"
-              data-view="apps"
-              aria-controls="apps-panel"
+              id="bookmarks-tab"
+              data-view="bookmarks"
+              aria-controls="bookmarks-panel"
               aria-selected="true"
               tabindex="0"
             >
-              应用
+              书签
             </button>
             <button
               type="button"
               class="collection-toggle-button"
               role="tab"
-              id="bookmarks-tab"
-              data-view="bookmarks"
-              aria-controls="bookmarks-panel"
+              id="apps-tab"
+              data-view="apps"
+              aria-controls="apps-panel"
               aria-selected="false"
               tabindex="-1"
             >
-              书签
+              应用
             </button>
           </div>
         </div>
         <div class="collection-panels">
           <div
             class="collection-panel is-active"
-            id="apps-panel"
-            role="tabpanel"
-            aria-labelledby="apps-tab"
-          >
-            <div class="grid" id="apps-grid" role="list"></div>
-            <p class="empty-hint" id="apps-empty" hidden>
-              暂无应用，请前往后台管理进行添加。
-            </p>
-          </div>
-          <div
-            class="collection-panel"
             id="bookmarks-panel"
             role="tabpanel"
             aria-labelledby="bookmarks-tab"
-            hidden
           >
             <div class="bookmark-collection" id="bookmarks-grid"></div>
             <p class="empty-hint" id="bookmarks-empty" hidden>
               暂无书签，请前往后台管理进行添加。
+            </p>
+          </div>
+          <div
+            class="collection-panel"
+            id="apps-panel"
+            role="tabpanel"
+            aria-labelledby="apps-tab"
+            hidden
+          >
+            <div class="grid" id="apps-grid" role="list"></div>
+            <p class="empty-hint" id="apps-empty" hidden>
+              暂无应用，请前往后台管理进行添加。
             </p>
           </div>
         </div>
