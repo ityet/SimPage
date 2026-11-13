@@ -1342,16 +1342,10 @@ body.dark-theme .summary-action:focus-visible {
   text-align: center;
 }
 
-/* 按列分配宽度：名称给足空间，描述让位，链接保有可读宽度。
-   名称从 34% 收窄到 31%、链接从 24% 放宽到 27%（两者互相让，总和仍 86%，其余列不动）：
-   链接是等宽字体 + break-all，一窄就折成三四行，比名称多折一行更难读。
-   ⚠️ 这里全部是非固定布局（table-layout:auto）下的宽度建议值，不是硬约束：
-   浏览器仍会优先保证内容的最小宽度，所以 sort / actions 的 nowrap（1% + 内容撑开）
-   不会被挤塌。**不要改成 table-layout:fixed** —— 固定布局会把 1% 的 操作列压扁，
-   三颗按钮直接溢出到表格外。 */
 .admin-table th[data-column="name"],
 .admin-table td[data-column="name"] {
   width: 31%;
+  min-width: 200px;
 }
 
 .admin-table th[data-column="category"],
@@ -1369,9 +1363,6 @@ body.dark-theme .summary-action:focus-visible {
   width: 27%;
 }
 
-/* 应用表专属：描述列收窄，链接列放宽。
-   注意 width 在 auto 布局下只是建议值：url 因 break-all 可压缩性最强，
-   实际宽度常被描述列挤占，所以用 min-width 给它兜底。 */
 .admin-table-apps th[data-column="description"],
 .admin-table-apps td[data-column="description"] {
   width: 12%;
@@ -1383,13 +1374,14 @@ body.dark-theme .summary-action:focus-visible {
   width: 33%;
 }
 
-/* 书签表专属：名称列收窄，腾出的空间由描述/链接列自动吸收 */
 .admin-table-bookmarks th[data-column="name"],
 .admin-table-bookmarks td[data-column="name"] {
   width: 20%;
+  min-width: 200px;
 }
 
 /* 描述列最多展示 3 行，超出显示省略号，完整内容靠单元格 title 悬停查看 */
+.admin-table-apps .description-text,
 .admin-table .description-text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
