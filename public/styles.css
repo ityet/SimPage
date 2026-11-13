@@ -1375,12 +1375,12 @@ body.dark-theme .summary-action:focus-visible {
 .admin-table-apps th[data-column="description"],
 .admin-table-apps td[data-column="description"] {
   width: 12%;
+  max-width:310px;
 }
 
 .admin-table-apps th[data-column="url"],
 .admin-table-apps td[data-column="url"] {
   width: 33%;
-  min-width: 300px;
 }
 
 /* 书签表专属：名称列收窄，腾出的空间由描述/链接列自动吸收 */
